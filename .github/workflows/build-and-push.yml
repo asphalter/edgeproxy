@@ -24,9 +24,16 @@ jobs:
   build-and-push-server:
     name: Build & Push Server (All-in-One)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Lowercase repository owner
+        run: |
+          echo "OWNER_LC=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -43,9 +50,10 @@ jobs:
         id: meta-server
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/edgeproxy-server
+          images: ${{ env.REGISTRY }}/${{ env.OWNER_LC }}/edgeproxy-server
           tags: |
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch' }}
+            type=ref,event=branch
             type=semver,pattern={{version}}
             type=sha,format=short
 
@@ -63,9 +71,16 @@ jobs:
   build-and-push-client:
     name: Build & Push Client (All-in-One)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Lowercase repository owner
+        run: |
+          echo "OWNER_LC=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -82,9 +97,10 @@ jobs:
         id: meta-client
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/edgeproxy-client
+          images: ${{ env.REGISTRY }}/${{ env.OWNER_LC }}/edgeproxy-client
           tags: |
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch' }}
+            type=ref,event=branch
             type=semver,pattern={{version}}
             type=sha,format=short
 
