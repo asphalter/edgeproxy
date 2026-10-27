@@ -1,0 +1,381 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Traffic Statistics & Telemetry</h1>
+        <p class="page-desc">Network traffic analysis, per-host bandwidth consumption, and recent access logs recorded by Caddy reverse proxy</p>
+    </div>
+    <div style="display: flex; gap: 0.5rem; align-items: center;">
+        <button id="btnRefresh" class="btn btn-secondary" onclick="loadAllStats()">
+            <svg style="width: 14px; height: 14px; vertical-align: middle; margin-right: 4px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="23 4 23 10 17 10"></polyline>
+                <polyline points="1 20 1 14 7 14"></polyline>
+                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+            </svg>
+            Refresh
+        </button>
+    </div>
+</div>
+
+<!-- Filters Bar -->
+<div class="card" style="margin-bottom: 1.5rem; padding: 1rem 1.25rem;">
+    <div style="display: flex; flex-wrap: wrap; gap: 1.25rem; align-items: flex-end;">
+        <div style="flex: 1; min-width: 200px;">
+            <label for="hostSelect" class="form-label" style="font-size: 0.72rem; text-transform: uppercase; color: var(--text-muted); font-family: var(--font-mono); margin-bottom: 0.35rem; display: block;">Selected Host</label>
+            <select id="hostSelect" class="form-control" style="background: var(--bg-input); color: var(--text-primary); border: 1px solid var(--border-subtle); padding: 0.5rem 0.75rem; border-radius: 4px; width: 100%; font-family: var(--font-mono);" onchange="loadAllStats()">
+                <option value="">All Hosts (Aggregated)</option>
+                {% for h in hosts %}
+                <option value="{{ h.domain }}">{{ h.domain }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div style="width: 180px;">
+            <label for="timeRangeSelect" class="form-label" style="font-size: 0.72rem; text-transform: uppercase; color: var(--text-muted); font-family: var(--font-mono); margin-bottom: 0.35rem; display: block;">Time Range</label>
+            <select id="timeRangeSelect" class="form-control" style="background: var(--bg-input); color: var(--text-primary); border: 1px solid var(--border-subtle); padding: 0.5rem 0.75rem; border-radius: 4px; width: 100%; font-family: var(--font-mono);" onchange="loadBandwidthData()">
+                <option value="6">Last 6 hours</option>
+                <option value="24" selected>Last 24 hours</option>
+                <option value="168">Last 7 days</option>
+                <option value="720">Last 30 days</option>
+            </select>
+        </div>
+
+        <div style="width: 150px;">
+            <label for="limitSelect" class="form-label" style="font-size: 0.72rem; text-transform: uppercase; color: var(--text-muted); font-family: var(--font-mono); margin-bottom: 0.35rem; display: block;">Access Log Limit</label>
+            <select id="limitSelect" class="form-control" style="background: var(--bg-input); color: var(--text-primary); border: 1px solid var(--border-subtle); padding: 0.5rem 0.75rem; border-radius: 4px; width: 100%; font-family: var(--font-mono);" onchange="loadAccessLogs()">
+                <option value="25">25 rows</option>
+                <option value="50" selected>50 rows</option>
+                <option value="100">100 rows</option>
+            </select>
+        </div>
+    </div>
+</div>
+
+<!-- Summary Metrics Cards -->
+<div class="grid-3" style="margin-bottom: 1.5rem;">
+    <div class="stat-card">
+        <div class="stat-label">Estimated Bandwidth Out</div>
+        <div class="stat-val" style="color: #38bdf8;" id="statTotalBytes">0 B</div>
+        <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.35rem; font-family: var(--font-mono);">Cumulative egress in selected period</div>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-label">Recorded Requests</div>
+        <div class="stat-val" style="color: #34d399;" id="statTotalRequests">0</div>
+        <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.35rem; font-family: var(--font-mono);">Ingested access entries</div>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-label">Time Window</div>
+        <div class="stat-val" style="color: #a78bfa;" id="statPeriodLabel">24 Hours</div>
+        <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.35rem; font-family: var(--font-mono);">Hourly aggregation</div>
+    </div>
+</div>
+
+<!-- Bandwidth Timeline Chart Card -->
+<div class="card" style="margin-bottom: 1.5rem;">
+    <div class="card-title">
+        <span>Bandwidth Consumption Over Time (Bytes Out)</span>
+        <span id="chartLoadingIndicator" style="display: none; font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-mono);">
+            Loading telemetry...
+        </span>
+    </div>
+
+    <div style="position: relative; height: 280px; width: 100%;">
+        <canvas id="bandwidthChart"></canvas>
+        <div id="chartEmptyMessage" style="display: none; position: absolute; inset: 0; align-items: center; justify-content: center; color: var(--text-muted); font-family: var(--font-mono); font-size: 0.85rem;">
+            No traffic data recorded for the selected interval.
+        </div>
+    </div>
+</div>
+
+<!-- Recent Access Logs Table -->
+<div class="card">
+    <div class="card-title">
+        <span>Recent Access Logs (Caddy JSON Access Logs)</span>
+        <span class="badge badge-neutral" id="accessCountBadge">0 records</span>
+    </div>
+
+    <div style="overflow-x: auto;">
+        <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem;">
+            <thead>
+                <tr>
+                    <th style="width: 150px;">Timestamp</th>
+                    <th style="width: 160px;">Host</th>
+                    <th style="width: 120px;">Client IP</th>
+                    <th>Method & URI</th>
+                    <th style="width: 70px;">Status</th>
+                    <th style="width: 90px;">Bytes</th>
+                    <th style="width: 80px;">Duration</th>
+                </tr>
+            </thead>
+            <tbody id="accessLogsTableBody">
+                <tr>
+                    <td colspan="7" style="text-align: center; color: var(--text-muted); padding: 1.5rem; font-family: var(--font-mono);">
+                        Loading access logs...
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+<script>
+    let bandwidthChartInstance = null;
+
+    const CHART_COLORS = [
+        { border: '#38bdf8', bg: 'rgba(56, 189, 248, 0.15)' },
+        { border: '#34d399', bg: 'rgba(52, 211, 153, 0.15)' },
+        { border: '#a78bfa', bg: 'rgba(167, 139, 250, 0.15)' },
+        { border: '#fbbf24', bg: 'rgba(251, 191, 36, 0.15)' },
+        { border: '#f87171', bg: 'rgba(248, 113, 113, 0.15)' },
+        { border: '#60a5fa', bg: 'rgba(96, 165, 250, 0.15)' }
+    ];
+
+    function formatBytes(bytes) {
+        if (!bytes || bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    function formatTimeLabel(tsStr) {
+        if (!tsStr) return '';
+        const parts = tsStr.split(' ');
+        if (parts.length === 2) {
+            return parts[1];
+        }
+        return tsStr;
+    }
+
+    async function loadBandwidthData() {
+        const host = document.getElementById('hostSelect').value;
+        const hours = document.getElementById('timeRangeSelect').value;
+        const loader = document.getElementById('chartLoadingIndicator');
+        const emptyMsg = document.getElementById('chartEmptyMessage');
+        const canvas = document.getElementById('bandwidthChart');
+
+        if (loader) loader.style.display = 'inline';
+
+        try {
+            const url = `/api/v1/stats/bandwidth-timeline?host=${encodeURIComponent(host)}&hours=${encodeURIComponent(hours)}`;
+            const res = await fetch(url);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const resJson = await res.json();
+            const data = resJson.data || resJson;
+
+            const labels = data.labels || [];
+            const datasets = data.datasets || [];
+
+            let totalBytes = 0;
+            datasets.forEach(ds => {
+                if (Array.isArray(ds.data)) {
+                    totalBytes += ds.data.reduce((acc, val) => acc + (Number(val) || 0), 0);
+                }
+            });
+            document.getElementById('statTotalBytes').textContent = formatBytes(totalBytes);
+
+            const hasData = datasets.some(ds => ds.data && ds.data.some(v => v > 0));
+
+            if (emptyMsg && canvas) {
+                if (!hasData && labels.length === 0) {
+                    emptyMsg.style.display = 'flex';
+                    canvas.style.opacity = '0.1';
+                } else {
+                    emptyMsg.style.display = 'none';
+                    canvas.style.opacity = '1';
+                }
+            }
+
+            const styledDatasets = datasets.map((ds, idx) => {
+                const color = CHART_COLORS[idx % CHART_COLORS.length];
+                return {
+                    label: ds.label,
+                    data: ds.data,
+                    borderColor: color.border,
+                    backgroundColor: color.bg,
+                    borderWidth: 2,
+                    pointRadius: labels.length > 50 ? 0 : 2,
+                    pointHoverRadius: 4,
+                    fill: true,
+                    tension: 0.3
+                };
+            });
+
+            const displayLabels = labels.map(formatTimeLabel);
+
+            if (bandwidthChartInstance) {
+                bandwidthChartInstance.data.labels = displayLabels;
+                bandwidthChartInstance.data.datasets = styledDatasets;
+                bandwidthChartInstance.update();
+            } else {
+                const ctx = canvas.getContext('2d');
+                bandwidthChartInstance = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: displayLabels,
+                        datasets: styledDatasets
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: {
+                            intersect: false,
+                            mode: 'index'
+                        },
+                        plugins: {
+                            legend: {
+                                position: 'top',
+                                labels: {
+                                    color: '#94a3b8',
+                                    font: { family: 'ui-monospace, monospace', size: 11 },
+                                    boxWidth: 12
+                                }
+                            },
+                            tooltip: {
+                                backgroundColor: '#181c2b',
+                                titleColor: '#e2e8f0',
+                                bodyColor: '#94a3b8',
+                                borderColor: '#2d3752',
+                                borderWidth: 1,
+                                callbacks: {
+                                    label: function(context) {
+                                        let label = context.dataset.label || '';
+                                        if (label) label += ': ';
+                                        label += formatBytes(context.parsed.y);
+                                        return label;
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                grid: {
+                                    color: 'rgba(255, 255, 255, 0.05)',
+                                    drawBorder: false
+                                },
+                                ticks: {
+                                    color: '#64748b',
+                                    font: { family: 'ui-monospace, monospace', size: 10 },
+                                    maxRotation: 0,
+                                    autoSkip: true,
+                                    maxTicksLimit: 12
+                                }
+                            },
+                            y: {
+                                beginAtZero: true,
+                                grid: {
+                                    color: 'rgba(255, 255, 255, 0.05)',
+                                    drawBorder: false
+                                },
+                                ticks: {
+                                    color: '#64748b',
+                                    font: { family: 'ui-monospace, monospace', size: 10 },
+                                    callback: function(value) {
+                                        return formatBytes(value);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+
+        } catch (err) {
+            console.error('Error loading bandwidth data:', err);
+        } finally {
+            if (loader) loader.style.display = 'none';
+        }
+    }
+
+    async function loadAccessLogs() {
+        const host = document.getElementById('hostSelect').value;
+        const limit = document.getElementById('limitSelect').value;
+        const tbody = document.getElementById('accessLogsTableBody');
+        const badge = document.getElementById('accessCountBadge');
+
+        try {
+            const url = `/api/v1/stats/access-logs?host=${encodeURIComponent(host)}&limit=${encodeURIComponent(limit)}`;
+            const res = await fetch(url);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            const logs = data.logs || [];
+
+            badge.textContent = `${logs.length} records`;
+            document.getElementById('statTotalRequests').textContent = logs.length;
+
+            if (logs.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="7" style="text-align: center; color: var(--text-muted); padding: 1.5rem; font-family: var(--font-mono);">
+                            No recent access logs recorded.
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            tbody.innerHTML = logs.map(l => {
+                let statusBadge = 'badge-neutral';
+                if (l.status >= 200 && l.status < 300) statusBadge = 'badge-success';
+                else if (l.status >= 300 && l.status < 400) statusBadge = 'badge-bypass';
+                else if (l.status >= 400 && l.status < 500) statusBadge = 'badge-oauth';
+                else if (l.status >= 500) statusBadge = 'badge-neutral';
+
+                return `
+                    <tr>
+                        <td style="font-family: var(--font-mono); color: var(--text-muted); font-size: 0.75rem;">${l.ts || l.created_at || ''}</td>
+                        <td style="font-family: var(--font-mono); color: #38bdf8; font-weight: 600;">${l.host || ''}</td>
+                        <td style="font-family: var(--font-mono); color: var(--text-secondary);">${l.remote_ip || ''}</td>
+                        <td style="font-family: var(--font-mono); color: var(--text-primary); max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${l.uri || ''}">
+                            ${l.uri || '/'}
+                        </td>
+                        <td>
+                            <span class="badge ${statusBadge}" style="font-size: 0.7rem; padding: 0.15rem 0.4rem;">${l.status}</span>
+                        </td>
+                        <td style="font-family: var(--font-mono); color: var(--text-secondary);">${formatBytes(l.bytes_out || l.bytes || 0)}</td>
+                        <td style="font-family: var(--font-mono); color: var(--text-muted);">${(l.duration_ms || 0).toFixed(1)} ms</td>
+                    </tr>
+                `;
+            }).join('');
+
+        } catch (err) {
+            console.error('Error loading access logs:', err);
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="7" style="text-align: center; color: #f87171; padding: 1.5rem; font-family: var(--font-mono);">
+                        Error communicating with stats telemetry API.
+                    </td>
+                </tr>
+            `;
+        }
+    }
+
+    function updatePeriodLabel() {
+        const hours = document.getElementById('timeRangeSelect').value;
+        const labels = {
+            '6': '6 Hours',
+            '24': '24 Hours',
+            '168': '7 Days',
+            '720': '30 Days'
+        };
+        document.getElementById('statPeriodLabel').textContent = labels[hours] || `${hours} Hours`;
+    }
+
+    function loadAllStats() {
+        updatePeriodLabel();
+        loadBandwidthData();
+        loadAccessLogs();
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        loadAllStats();
+        // Auto refresh every 30 seconds
+        setInterval(loadAllStats, 30000);
+    });
+</script>
+{% endblock %}

@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ page_title }} — EDGEPROXY // CONTROL PLANE</title>
+    <style>
+        :root {
+            /* Palette Tecnica Dark / Obsidian / High-Contrast Terminal */
+            --bg-canvas: #090a0f;
+            --bg-sidebar: #0d0f17;
+            --bg-panel: #121520;
+            --bg-panel-elevated: #181c2b;
+            --bg-input: #0a0c13;
+            --border-subtle: #1e2438;
+            --border-strong: #2d3752;
+            --border-active: #3b82f6;
+
+            --text-primary: #e2e8f0;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --text-dim: #475569;
+
+            --accent: #2563eb;
+            --accent-hover: #1d4ed8;
+            --accent-glow: rgba(37, 99, 235, 0.2);
+
+            --success: #10b981;
+            --success-glow: rgba(16, 185, 129, 0.15);
+            --warning: #f59e0b;
+            --danger: #ef4444;
+
+            --font-sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            --font-mono: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: var(--font-sans);
+            background-color: var(--bg-canvas);
+            color: var(--text-primary);
+            line-height: 1.45;
+            min-height: 100vh;
+            display: flex;
+            overflow-x: hidden;
+        }
+
+        /* Sidebar Laterale Sinistra */
+        .sidebar {
+            width: 250px;
+            background-color: var(--bg-sidebar);
+            border-right: 1px solid var(--border-subtle);
+            display: flex;
+            flex-direction: column;
+            position: fixed;
+            top: 0;
+            bottom: 0;
+            left: 0;
+            z-index: 100;
+        }
+
+        .sidebar-brand {
+            padding: 1.25rem 1.25rem;
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            align-items: center;
+            gap: 0.65rem;
+            text-decoration: none;
+            color: var(--text-primary);
+        }
+
+        .brand-icon {
+            font-family: var(--font-mono);
+            font-weight: 800;
+            font-size: 0.85rem;
+            background: #1e293b;
+            color: #38bdf8;
+            border: 1px solid #334155;
+            padding: 0.25rem 0.45rem;
+            border-radius: 4px;
+            letter-spacing: -0.5px;
+        }
+
+        .brand-text {
+            font-size: 0.95rem;
+            font-weight: 700;
+            letter-spacing: -0.3px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .brand-sub {
+            font-size: 0.65rem;
+            font-family: var(--font-mono);
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .nav-menu {
+            list-style: none;
+            padding: 1rem 0.75rem;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+
+        .nav-section-title {
+            font-size: 0.65rem;
+            font-family: var(--font-mono);
+            text-transform: uppercase;
+            color: var(--text-dim);
+            letter-spacing: 0.8px;
+            padding: 0.6rem 0.75rem 0.25rem;
+        }
+
+        .nav-link {
+            display: flex;
+            align-items: center;
+            gap: 0.65rem;
+            padding: 0.55rem 0.75rem;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+            text-decoration: none;
+            transition: all 0.15s ease;
+            border: 1px solid transparent;
+        }
+
+        .nav-link:hover {
+            color: #ffffff;
+            background-color: var(--bg-panel);
+            border-color: var(--border-subtle);
+        }
+
+        .nav-link.active {
+            color: #ffffff;
+            background-color: var(--bg-panel-elevated);
+            border-color: var(--border-strong);
+            font-weight: 600;
+        }
+
+        .nav-link svg {
+            width: 16px;
+            height: 16px;
+            opacity: 0.75;
+        }
+
+        .nav-link:hover svg, .nav-link.active svg {
+            opacity: 1;
+        }
+
+        .sidebar-footer {
+            padding: 1rem;
+            border-top: 1px solid var(--border-subtle);
+            font-size: 0.7rem;
+            font-family: var(--font-mono);
+            color: var(--text-dim);
+            background: rgba(0, 0, 0, 0.2);
+        }
+
+        /* Layout Principale (Destra) */
+        .main-wrapper {
+            margin-left: 250px;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+
+        .topbar {
+            height: 54px;
+            background-color: var(--bg-sidebar);
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 1.75rem;
+            position: sticky;
+            top: 0;
+            z-index: 90;
+        }
+
+        .topbar-status {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+        }
+
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            background: #0f172a;
+            border: 1px solid #1e293b;
+            padding: 0.25rem 0.6rem;
+            border-radius: 4px;
+            color: var(--text-secondary);
+        }
+
+        .status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background-color: var(--success);
+            box-shadow: 0 0 8px var(--success);
+        }
+
+        .apply-btn {
+            background-color: #0f172a;
+            border: 1px solid #334155;
+            color: #38bdf8;
+            padding: 0.4rem 0.85rem;
+            border-radius: 4px;
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            font-weight: 600;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            transition: all 0.15s ease;
+        }
+
+        .apply-btn:hover {
+            background-color: #1e293b;
+            border-color: #38bdf8;
+            color: #ffffff;
+        }
+
+        .content-area {
+            flex: 1;
+            padding: 1.75rem 2rem;
+            max-width: 1400px;
+            width: 100%;
+        }
+
+        .page-header {
+            margin-bottom: 1.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            border-bottom: 1px solid var(--border-subtle);
+            padding-bottom: 1rem;
+        }
+
+        .page-title {
+            font-size: 1.25rem;
+            font-weight: 700;
+            letter-spacing: -0.3px;
+            color: #ffffff;
+            margin-bottom: 0.25rem;
+        }
+
+        .page-desc {
+            font-size: 0.82rem;
+            color: var(--text-muted);
+        }
+
+        /* Card / Panels */
+        .card {
+            background-color: var(--bg-panel);
+            border: 1px solid var(--border-subtle);
+            border-radius: 6px;
+            padding: 1.25rem;
+            margin-bottom: 1.25rem;
+        }
+
+        .card-title {
+            font-size: 0.9rem;
+            font-family: var(--font-mono);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            color: var(--text-secondary);
+            margin-bottom: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        /* Pulsanti */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            padding: 0.45rem 0.85rem;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-weight: 500;
+            cursor: pointer;
+            text-decoration: none;
+            border: 1px solid transparent;
+            transition: all 0.15s ease;
+        }
+
+        .btn-primary {
+            background-color: var(--accent);
+            border-color: #1d4ed8;
+            color: #ffffff;
+        }
+
+        .btn-primary:hover {
+            background-color: var(--accent-hover);
+        }
+
+        .btn-secondary {
+            background-color: #1e2438;
+            border-color: var(--border-strong);
+            color: var(--text-secondary);
+        }
+
+        .btn-secondary:hover {
+            background-color: #27314d;
+            color: #ffffff;
+            border-color: #475569;
+        }
+
+        .btn-danger {
+            background-color: rgba(239, 68, 68, 0.1);
+            border-color: rgba(239, 68, 68, 0.3);
+            color: #f87171;
+        }
+
+        .btn-danger:hover {
+            background-color: #ef4444;
+            color: #ffffff;
+            border-color: #ef4444;
+        }
+
+        .btn-sm {
+            padding: 0.3rem 0.6rem;
+            font-size: 0.75rem;
+        }
+
+        /* Form Controlli */
+        .form-group {
+            margin-bottom: 1rem;
+        }
+
+        label {
+            display: block;
+            font-size: 0.78rem;
+            font-family: var(--font-mono);
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 0.35rem;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 0.5rem 0.75rem;
+            background-color: var(--bg-input);
+            border: 1px solid var(--border-strong);
+            border-radius: 4px;
+            color: var(--text-primary);
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            transition: all 0.15s ease;
+        }
+
+        .form-control:focus {
+            outline: none;
+            border-color: var(--border-active);
+            box-shadow: 0 0 0 1px var(--border-active);
+        }
+
+        .form-hint {
+            font-size: 0.72rem;
+            color: var(--text-muted);
+            margin-top: 0.35rem;
+        }
+
+        /* Tabelle Tecniche */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.82rem;
+        }
+
+        th {
+            background-color: #0c0e17;
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 0.65rem 0.85rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+
+        td {
+            padding: 0.75rem 0.85rem;
+            border-bottom: 1px solid var(--border-subtle);
+            color: var(--text-primary);
+            vertical-align: middle;
+        }
+
+        tr:hover td {
+            background-color: rgba(255, 255, 255, 0.015);
+        }
+
+        /* Badges */
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            padding: 0.2rem 0.5rem;
+            border-radius: 3px;
+            font-family: var(--font-mono);
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+
+        .badge-oauth {
+            background: rgba(37, 99, 235, 0.15);
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            color: #60a5fa;
+        }
+
+        .badge-bypass {
+            background: rgba(245, 158, 11, 0.15);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            color: #fbbf24;
+        }
+
+        .badge-success {
+            background: rgba(16, 185, 129, 0.15);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            color: #34d399;
+        }
+
+        .badge-neutral {
+            background: #1e2438;
+            border: 1px solid #334155;
+            color: #94a3b8;
+        }
+
+        /* Code Blocks */
+        .code-block {
+            background-color: #07080c;
+            border: 1px solid #1a2033;
+            border-radius: 4px;
+            padding: 0.85rem 1rem;
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            color: #38bdf8;
+            overflow-x: auto;
+            white-space: pre;
+            line-height: 1.5;
+        }
+
+        code {
+            font-family: var(--font-mono);
+            font-size: 0.82rem;
+            background: #0f1422;
+            padding: 0.15rem 0.4rem;
+            border-radius: 3px;
+            border: 1px solid #1e263c;
+            color: #38bdf8;
+        }
+
+        /* Alert Box */
+        .alert {
+            padding: 0.75rem 1rem;
+            border-radius: 4px;
+            margin-bottom: 1.25rem;
+            font-size: 0.82rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-family: var(--font-mono);
+        }
+
+        .alert-success {
+            background-color: rgba(16, 185, 129, 0.08);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            color: #34d399;
+        }
+
+        .alert-error {
+            background-color: rgba(239, 68, 68, 0.08);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #f87171;
+        }
+
+        .alert-warning {
+            background-color: rgba(245, 158, 11, 0.08);
+            border: 1px solid rgba(245, 158, 11, 0.35);
+            color: #fbbf24;
+        }
+
+        .grid-2 {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 1.25rem;
+        }
+
+        .grid-3 {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 1.25rem;
+        }
+
+        .grid-4 {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 1rem;
+        }
+
+        /* Stat Card */
+        .stat-card {
+            background: var(--bg-panel);
+            border: 1px solid var(--border-subtle);
+            border-radius: 4px;
+            padding: 1rem 1.25rem;
+        }
+
+        .stat-label {
+            font-size: 0.7rem;
+            font-family: var(--font-mono);
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 0.35rem;
+        }
+
+        .stat-val {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #ffffff;
+            font-family: var(--font-mono);
+        }
+    </style>
+</head>
+<body>
+    <!-- Sidebar Sinistra -->
+    <aside class="sidebar">
+        <a href="/" class="sidebar-brand">
+            <span class="brand-icon">EP</span>
+            <div class="brand-text">
+                <span>EDGEPROXY</span>
+                <span class="brand-sub">CONTROL PLANE &middot; EdgeProxy Manager</span>
+            </div>
+        </a>
+
+        <ul class="nav-menu">
+            <li class="nav-section-title">Infrastructure</li>
+            <li>
+                <a href="/" class="nav-link {% if page_title == 'Overview' or page_title == 'Dashboard Panoramica' %}active{% endif %}">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"></rect><rect x="14" y="3" width="7" height="5"></rect><rect x="14" y="12" width="7" height="9"></rect><rect x="3" y="16" width="7" height="5"></rect></svg>
+                    <span>Overview</span>
+                </a>
+            </li>
+            <li>
+                <a href="/hosts" class="nav-link {% if 'Host' in page_title %}active{% endif %}">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+                    <span>Hosts & Tunnels</span>
+                </a>
+            </li>
+            <li>
+                <a href="/stats" class="nav-link {% if 'Stat' in page_title %}active{% endif %}">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+                    <span>Statistics</span>
+                </a>
+            </li>
+
+            <li class="nav-section-title">Client Connectivity</li>
+            <li>
+                <a href="/links" class="nav-link {% if 'Link' in page_title %}active{% endif %}">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+                    <span>Links & Clients</span>
+                </a>
+            </li>
+            <li>
+                <a href="/client-config" class="nav-link {% if 'Config' in page_title or 'Client' in page_title %}active{% endif %}">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>
+                    <span>Client Config</span>
+                </a>
+            </li>
+
+            <li class="nav-section-title">Configuration</li>
+            <li>
+                <a href="/settings" class="nav-link {% if 'Setting' in page_title or 'Impostazioni' in page_title %}active{% endif %}">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                    <span>Google OAuth2 & Core</span>
+                </a>
+            </li>
+        </ul>
+
+        <div class="sidebar-footer">
+            <div>HOST: {{ settings.get('root_domain', 'edge.mpv.cx') }}</div>
+            <div style="color: var(--text-muted); margin-top: 0.2rem;">PORT: 8000 // QUADLET</div>
+        </div>
+    </aside>
+
+    <!-- Main Wrapper -->
+    <div class="main-wrapper">
+        <header class="topbar">
+            <div class="topbar-status">
+                <div class="status-pill">
+                    <span class="status-dot"></span>
+                    <span>POD: EDGEPROXY ONLINE</span>
+                </div>
+            </div>
+
+            <form action="/reload-all" method="POST" style="margin: 0;">
+                <button type="submit" class="apply-btn" title="Reload Caddy, Rathole and OAuth2-Proxy configurations">
+                    <span>↻</span> AUTO-APPLY
+                </button>
+            </form>
+        </header>
+
+        <main class="content-area">
+            {% if request.query_params.get('msg') %}
+                <div class="alert alert-success">
+                    <span>✓</span> {{ request.query_params.get('msg') }}
+                </div>
+            {% elif msg %}
+                <div class="alert alert-success">
+                    <span>✓</span> {{ msg }}
+                </div>
+            {% endif %}
+
+            {% if request.query_params.get('error') %}
+                <div class="alert alert-error">
+                    <span>✕</span> {{ request.query_params.get('error') }}
+                </div>
+            {% elif error %}
+                <div class="alert alert-error">
+                    <span>✕</span> {{ error }}
+                </div>
+            {% endif %}
+
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+</body>
+</html>

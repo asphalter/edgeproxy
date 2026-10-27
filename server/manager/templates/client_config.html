@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1>Client Configuration & Deployment</h1>
+        <p style="color: var(--text-muted); font-size: 0.9rem;">Deploy the EdgeProxy All-in-One Client container or export raw configurations for private backend hosts.</p>
+    </div>
+    <div style="display: flex; gap: 0.75rem;">
+        <button onclick="copyQuadletToClipboard()" class="btn btn-primary" id="copy-quadlet-btn">
+            📋 Copy Client Quadlet
+        </button>
+        <a href="/client-config/download" class="btn btn-secondary">
+            ⬇ Download client.toml
+        </a>
+    </div>
+</div>
+
+<!-- All-in-One Quadlet Card (Recommended Deployment) -->
+<div class="card" style="border: 1px solid rgba(56, 189, 248, 0.35); box-shadow: 0 4px 20px rgba(14, 165, 233, 0.1);">
+    <div class="card-title" style="display: flex; justify-content: space-between; align-items: center;">
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <span style="font-size: 1.1rem; font-weight: 600; color: #f8fafc;">🚀 Single All-in-One Client Quadlet</span>
+            <span class="badge badge-success">Recommended</span>
+        </div>
+        <span style="font-size: 0.8rem; color: #94a3b8;">Path: <code>/etc/containers/systemd/edgeproxy-client.container</code></span>
+    </div>
+
+    <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.75rem;">
+        Copy and paste this pre-configured single file into <code>/etc/containers/systemd/edgeproxy-client.container</code> on your backend machine. Podman will automatically pull the container from GHCR, establish the secure Noise tunnel, and poll for upstream changes every 15s.
+    </p>
+
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0.75rem; margin-bottom: 1rem;">
+        <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 0.75rem;">
+            <div style="font-size: 0.75rem; color: #94a3b8; font-weight: 600; margin-bottom: 0.25rem;">SERVER URL (SYNC API)</div>
+            <code style="color: #38bdf8; font-size: 0.85rem;">https://auth.{{ settings.get('root_domain', 'edge.mpv.cx') }}</code>
+        </div>
+        <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 0.75rem;">
+            <div style="font-size: 0.75rem; color: #94a3b8; font-weight: 600; margin-bottom: 0.25rem;">TUNNEL GATEWAY (RATHOLE NOISE)</div>
+            <code style="color: #38bdf8; font-size: 0.85rem;">{{ settings.get('rathole_public_host', settings.get('root_domain', 'edge.mpv.cx')) }}:{{ settings.get('rathole_public_port', '2333') }}</code>
+        </div>
+        <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 0.75rem;">
+            <div style="font-size: 0.75rem; color: #94a3b8; font-weight: 600; margin-bottom: 0.25rem;">CLIENT SYNC TOKEN</div>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <code style="color: #4ade80; font-size: 0.85rem;">{{ sync_token }}</code>
+                <button onclick="navigator.clipboard.writeText('{{ sync_token }}'); alert('Token copied!');" class="btn btn-secondary" style="padding: 0.15rem 0.4rem; font-size: 0.7rem;">Copy</button>
+            </div>
+        </div>
+    </div>
+
+    <pre class="code-block" id="quadlet-code" style="margin-bottom: 1rem; max-height: 320px; overflow-y: auto;">[Unit]
+Description=EdgeProxy Client (All-in-One)
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+ContainerName=edgeproxy-client
+Image=ghcr.io/vvelectron/edgeproxy-client:latest
+Network=host
+Volume=edgeproxy_client_data.volume:/etc/rathole:z
+Environment=SERVER_URL=https://auth.{{ settings.get('root_domain', 'edge.mpv.cx') }}
+Environment=SYNC_TOKEN={{ sync_token }}
+Environment=INTERVAL=15
+
+[Service]
+Restart=always
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target</pre>
+
+    <div style="background: rgba(15, 23, 42, 0.5); border-left: 3px solid #38bdf8; padding: 0.6rem 0.85rem; border-radius: 4px; font-size: 0.85rem; color: #cbd5e1;">
+        <strong>Quick Launch on Client Host:</strong>
+        <code style="background: rgba(0,0,0,0.3); padding: 0.2rem 0.4rem; border-radius: 4px; margin-left: 0.5rem;">sudo systemctl daemon-reload && sudo systemctl enable --now edgeproxy-client.service</code>
+    </div>
+</div>
+
+<!-- Raw client.toml Card -->
+<div class="card" style="margin-top: 1.5rem;">
+    <div class="card-title" style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+            <span>Generated File: <code>client.toml</code></span>
+            <span class="badge badge-info" style="margin-left: 0.5rem;">Dynamically Generated</span>
+        </div>
+        <button onclick="copyTomlToClipboard()" class="btn btn-secondary" id="copy-toml-btn" style="padding: 0.35rem 0.75rem; font-size: 0.8rem;">
+            📋 Copy client.toml
+        </button>
+    </div>
+
+    <pre class="code-block" id="toml-code" style="max-height: 380px; overflow-y: auto;">{{ toml_content | safe }}</pre>
+
+    <div style="margin-top: 1.5rem; border-top: 1px solid var(--border-color); padding-top: 1rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+            <h4 style="font-size: 0.95rem; margin: 0; color: #f8fafc;">⚡ Alternative Manual Methods</h4>
+            <span class="badge badge-secondary">Legacy / Standalone</span>
+        </div>
+
+        <div style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 0.4rem; font-weight: 600;">1. DIRECT HTTP FETCH (MANUAL EXPORT):</div>
+        <div class="code-block" style="font-size: 0.8rem; margin-bottom: 1rem;">curl -sS -H "Authorization: Bearer {{ sync_token }}" "https://auth.{{ settings.get('root_domain', 'edge.mpv.cx') }}/api/v1/client/config" -o /opt/edgeproxy/client/rathole/client.toml</div>
+
+        <div style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 0.4rem; font-weight: 600;">2. STANDALONE BASH SYNC SCRIPT (WITHOUT CONTAINER):</div>
+        <div class="code-block" style="font-size: 0.8rem;">curl -sSL "https://auth.{{ settings.get('root_domain', 'edge.mpv.cx') }}/api/v1/client/sync-agent.sh" | bash -s -- --token "{{ sync_token }}" --url "https://auth.{{ settings.get('root_domain', 'edge.mpv.cx') }}" --interval 15 --install-systemd</div>
+    </div>
+</div>
+
+<script>
+function copyQuadletToClipboard() {
+    const code = document.getElementById('quadlet-code').innerText;
+    navigator.clipboard.writeText(code).then(() => {
+        const btn = document.getElementById('copy-quadlet-btn');
+        btn.innerText = '✓ Quadlet Copied!';
+        setTimeout(() => {
+            btn.innerText = '📋 Copy Client Quadlet';
+        }, 2000);
+    }).catch(err => {
+        alert('Failed to copy text: ' + err);
+    });
+}
+
+function copyTomlToClipboard() {
+    const code = document.getElementById('toml-code').innerText;
+    navigator.clipboard.writeText(code).then(() => {
+        const btn = document.getElementById('copy-toml-btn');
+        btn.innerText = '✓ Copied!';
+        setTimeout(() => {
+            btn.innerText = '📋 Copy client.toml';
+        }, 2000);
+    }).catch(err => {
+        alert('Failed to copy text: ' + err);
+    });
+}
+</script>
+{% endblock %}

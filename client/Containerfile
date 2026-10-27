@@ -1,0 +1,43 @@
+# ==============================================================================
+# EdgeProxy Client — All-in-One Containerfile (Backend Locale)
+# Incapsula Rathole Client + Poller Zero-Touch Sync (15s) + Heartbeat & Log
+# ==============================================================================
+
+# Stage 1: Estrazione del binario ufficiale Rathole e relative dipendenze
+FROM docker.io/rapiz1/rathole:latest AS rathole-bin
+
+# Stage 2: Runtime leggero Alpine con strumenti di rete e sync
+FROM docker.io/alpine:latest AS runtime
+
+LABEL maintainer="EdgeProxy Team"
+LABEL description="EdgeProxy All-in-One Client (Rathole + Zero-Touch Poller 15s + Heartbeat)"
+
+# Installazione dei pacchetti per networking, monitoraggio, sync e manipolazione JSON
+RUN apk add --no-cache \
+    curl \
+    bash \
+    ca-certificates \
+    tzdata \
+    procps \
+    jq
+
+# Copia delle librerie condivise GNU/Linux per il runtime di rathole
+COPY --from=rathole-bin /lib/x86_64-linux-gnu /lib/x86_64-linux-gnu
+COPY --from=rathole-bin /lib64 /lib64
+COPY --from=rathole-bin /usr/lib/x86_64-linux-gnu /usr/lib/x86_64-linux-gnu
+COPY --from=rathole-bin /etc/ld.so.conf.d /etc/ld.so.conf.d
+
+# Copia del binario Rathole dallo stage 1
+COPY --from=rathole-bin /app/rathole /usr/local/bin/rathole
+RUN chmod +x /usr/local/bin/rathole
+
+WORKDIR /app
+
+# Copia lo script di entrypoint e imposta i permessi di esecuzione
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+# Directory per configurazione persistente e log
+RUN mkdir -p /etc/rathole /tmp
+
+ENTRYPOINT ["/app/entrypoint.sh"]

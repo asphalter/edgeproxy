@@ -1,0 +1,13 @@
+# Rathole Server test configuration
+[server]
+bind_addr = "127.0.0.1:2333"
+
+[server.transport]
+type = "noise"
+
+[server.transport.noise]
+pattern = "Noise_NN_25519_ChaChaPoly_BLAKE2s"
+
+[server.services.pippo]
+token = "test_simulation_rathole_token_998877"
+bind_addr = "127.0.0.1:8003"

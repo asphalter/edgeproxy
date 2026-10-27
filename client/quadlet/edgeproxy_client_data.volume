@@ -1,0 +1,5 @@
+[Unit]
+Description=EdgeProxy Client Persistent Configuration Volume (/etc/rathole)
+
+[Volume]
+VolumeName=edgeproxy_client_data

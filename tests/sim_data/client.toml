@@ -1,0 +1,13 @@
+# Rathole Client test configuration
+[client]
+remote_addr = "127.0.0.1:2333"
+
+[client.transport]
+type = "noise"
+
+[client.transport.noise]
+pattern = "Noise_NN_25519_ChaChaPoly_BLAKE2s"
+
+[client.services.pippo]
+token = "test_simulation_rathole_token_998877"
+local_addr = "127.0.0.1:9000"

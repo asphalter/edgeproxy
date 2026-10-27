@@ -1,0 +1,73 @@
+# ==============================================================================
+# EdgeProxy Server — Single All-in-One Containerfile (VPS Gateway)
+# Bundles Caddy v2, OAuth2-Proxy, Rathole Server and EdgeProxy Manager UI
+# Managed via supervisord on loopback networking inside a single container.
+# ==============================================================================
+
+# Stage 1: Official Caddy binary
+FROM docker.io/caddy:alpine AS caddy-bin
+
+# Stage 2: Official OAuth2-Proxy binary
+FROM quay.io/oauth2-proxy/oauth2-proxy:latest AS oauth2-proxy-bin
+
+# Stage 3: Official Rathole binary and shared libraries
+FROM docker.io/rapiz1/rathole:latest AS rathole-bin
+
+# Stage 4: Python 3.12 Alpine Runtime
+FROM docker.io/library/python:3.12-alpine AS runtime
+
+LABEL maintainer="EdgeProxy Team"
+LABEL description="EdgeProxy Single All-in-One Server (Caddy + OAuth2-Proxy + Rathole + Manager)"
+
+# Install runtime dependencies and supervisor
+RUN apk add --no-cache \
+    bash \
+    curl \
+    ca-certificates \
+    tzdata \
+    sqlite \
+    supervisor \
+    procps
+
+# Copy Caddy and OAuth2-Proxy binaries
+COPY --from=caddy-bin /usr/bin/caddy /usr/local/bin/caddy
+COPY --from=oauth2-proxy-bin /bin/oauth2-proxy /usr/local/bin/oauth2-proxy
+
+# Copy Rathole binary and necessary shared GNU libraries
+COPY --from=rathole-bin /lib/x86_64-linux-gnu /lib/x86_64-linux-gnu
+COPY --from=rathole-bin /lib64 /lib64
+COPY --from=rathole-bin /usr/lib/x86_64-linux-gnu /usr/lib/x86_64-linux-gnu
+COPY --from=rathole-bin /etc/ld.so.conf.d /etc/ld.so.conf.d
+COPY --from=rathole-bin /app/rathole /usr/local/bin/rathole
+
+RUN chmod +x /usr/local/bin/caddy /usr/local/bin/oauth2-proxy /usr/local/bin/rathole
+
+# Setup working directory and install Python dependencies
+WORKDIR /app/manager
+COPY manager/requirements.txt /app/manager/requirements.txt
+RUN pip install --no-cache-dir -r /app/manager/requirements.txt
+
+# Copy manager source code
+COPY manager/ /app/manager/
+
+# Copy default configurations for initial bootstrapping into /defaults
+COPY caddy/Caddyfile /defaults/caddy/Caddyfile
+COPY rathole/server.toml /defaults/rathole/server.toml
+COPY oauth2-proxy/oauth2-proxy.cfg /defaults/oauth2-proxy/oauth2-proxy.cfg
+COPY oauth2-proxy/authenticated_emails.txt /defaults/oauth2-proxy/authenticated_emails.txt
+
+# Copy supervisord configuration and entrypoint script
+COPY supervisord.conf /etc/supervisord.conf
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# Persistent volume for database, certificates, and live configurations
+VOLUME ["/data"]
+
+# Exposed ports:
+# 80/tcp, 443/tcp, 443/udp: Caddy reverse proxy & HTTP/3
+# 2333/tcp: Rathole WAN Noise tunnel listener
+# 8000/tcp: EdgeProxy Manager Web UI
+EXPOSE 80/tcp 443/tcp 443/udp 2333/tcp 8000/tcp
+
+ENTRYPOINT ["/entrypoint.sh"]

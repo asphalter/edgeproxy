@@ -1,0 +1,203 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1 class="page-title">System Settings</h1>
+        <p class="page-desc">Global identity parameters, Let's Encrypt ACME certificates, Rathole tunnel gateway, and Google OAuth2 credentials</p>
+    </div>
+</div>
+
+{% if not oauth_configured %}
+<div class="alert alert-warning" style="margin-bottom: 1.5rem;">
+    <span style="font-size: 1.15rem; line-height: 1;">⚠️</span>
+    <div>
+        <strong>Warning:</strong> Google OAuth2 is not configured. Provide Client ID and Client Secret (or enable provider) to avoid blocking protected endpoints.
+    </div>
+</div>
+{% endif %}
+
+<form action="/settings/save" method="POST">
+    <!-- Google OAuth2 Card -->
+    <div class="card" style="border-left: 3px solid #2563eb;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+            <div class="card-title" style="margin-bottom: 0; color: #f8fafc; display: flex; align-items: center; gap: 0.5rem;">
+                <span>GOOGLE OAUTH2 FEDERATION</span>
+            </div>
+            {% if settings.get('google_oauth_enabled') in ('1', 1, 'true', True) %}
+            <span class="badge badge-success">ENABLED</span>
+            {% else %}
+            <span class="badge badge-neutral">DISABLED</span>
+            {% endif %}
+        </div>
+        <p style="color: var(--text-muted); font-size: 0.8rem; margin-bottom: 1.25rem;">
+            Delegate authentication to Google Workspace / Gmail SSO. Only email addresses explicitly authorized globally or per-host can pass through the perimeter security boundary.
+        </p>
+
+        <div class="form-group" style="display: flex; align-items: center; gap: 0.6rem; margin-bottom: 1.25rem; background: #0c0e17; padding: 0.65rem 0.85rem; border-radius: 4px; border: 1px solid var(--border-subtle);">
+            <input type="checkbox" id="google_oauth_enabled" name="google_oauth_enabled" value="1" {% if settings.get('google_oauth_enabled') in ('1', 1, 'true', True) %}checked{% endif %} style="width: 1.15rem; height: 1.15rem; accent-color: #2563eb; cursor: pointer;">
+            <label for="google_oauth_enabled" style="margin-bottom: 0; font-weight: 600; cursor: pointer; color: #f8fafc; font-size: 0.82rem;">
+                Enable Google OAuth2 Perimeter Authentication
+            </label>
+        </div>
+
+        <div class="grid-2">
+            <div class="form-group">
+                <label for="google_client_id">Google Client ID</label>
+                <input type="text" id="google_client_id" name="google_client_id" class="form-control" value="{{ settings.get('google_client_id', '') }}" placeholder="e.g. 123456789-xyz.apps.googleusercontent.com">
+                <div class="form-hint">Generated in Google Cloud Console > APIs & Services > Credentials.</div>
+            </div>
+
+            <div class="form-group">
+                <label for="google_client_secret">Google Client Secret</label>
+                <input type="password" id="google_client_secret" name="google_client_secret" class="form-control" value="{{ settings.get('google_client_secret', '') }}" placeholder="e.g. GOCSPX-xxxxxxxxxxxxxxxxxxxxxxxx">
+                <div class="form-hint">Client secret key for Google OAuth2 application.</div>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label for="google_allowed_emails">Globally Allowed Google Emails</label>
+            <input type="text" id="google_allowed_emails" name="google_allowed_emails" class="form-control" value="{{ settings.get('google_allowed_emails', 'matteo.piva@gmail.com') }}" placeholder="matteo.piva@gmail.com, user@example.com">
+            <div class="form-hint">Default email whitelist for all hosts that do not specify dedicated emails. Comma-separated list.</div>
+        </div>
+
+        <!-- Google Cloud Console Info Box -->
+        <div style="background: #07090e; border: 1px solid var(--border-subtle); border-radius: 4px; padding: 0.85rem 1rem; margin-top: 1rem;">
+            <div style="font-weight: 600; font-size: 0.75rem; font-family: var(--font-mono); color: #38bdf8; margin-bottom: 0.65rem;">
+                URIs REQUIRED IN GOOGLE CLOUD CONSOLE (OAUTH CLIENT CREDENTIALS)
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 0.65rem;">
+                <div>
+                    <div style="font-size: 0.72rem; color: var(--text-muted); font-family: var(--font-mono); margin-bottom: 0.2rem;">AUTHORIZED REDIRECT URI:</div>
+                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                        <input type="text" id="uri_redirect" readonly class="form-control" style="background: #0d111d; color: #38bdf8; font-size: 0.8rem;" value="https://auth.{{ settings.get('root_domain', 'edge.mpv.cx') }}/oauth2/callback">
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="copyToClipboard('uri_redirect', this)">Copy</button>
+                    </div>
+                </div>
+
+                <div>
+                    <div style="font-size: 0.72rem; color: var(--text-muted); font-family: var(--font-mono); margin-bottom: 0.2rem;">AUTHORIZED JAVASCRIPT ORIGINS:</div>
+                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                        <input type="text" id="uri_origin" readonly class="form-control" style="background: #0d111d; color: #38bdf8; font-size: 0.8rem;" value="https://auth.{{ settings.get('root_domain', 'edge.mpv.cx') }}">
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="copyToClipboard('uri_origin', this)">Copy</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    function copyToClipboard(elementId, btn) {
+        var copyText = document.getElementById(elementId);
+        navigator.clipboard.writeText(copyText.value).then(function() {
+            var orig = btn.innerText;
+            btn.innerText = "COPIED";
+            btn.style.color = "#34d399";
+            setTimeout(function() {
+                btn.innerText = orig;
+                btn.style.color = "";
+            }, 2000);
+        });
+    }
+    </script>
+
+    <div class="grid-2" style="align-items: start;">
+        <div class="card">
+            <div class="card-title">Network & ACME TLS</div>
+
+            <div class="form-group">
+                <label for="root_domain">Primary Root Domain</label>
+                <input type="text" id="root_domain" name="root_domain" class="form-control" value="{{ settings.get('root_domain', '') }}" required>
+                <div class="form-hint">e.g. <code>example.com</code>. Defines the session cookie perimeter.</div>
+            </div>
+
+            <div class="form-group">
+                <label for="acme_email">Let's Encrypt Email (ACME)</label>
+                <input type="email" id="acme_email" name="acme_email" class="form-control" value="{{ settings.get('acme_email', '') }}" required>
+                <div class="form-hint">Emergency contact email for TLS certificate expiration and renewals.</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-title">Rathole Tunnel Gateway</div>
+
+            <div class="form-group">
+                <label for="rathole_public_host">Public Rathole Host (WAN Target)</label>
+                <input type="text" id="rathole_public_host" name="rathole_public_host" class="form-control" value="{{ settings.get('rathole_public_host', '') }}" required>
+                <div class="form-hint">FQDN or public IPv4 clients connect to (<code>remote_addr</code> field).</div>
+            </div>
+
+            <div class="form-group">
+                <label for="rathole_public_port">WAN Ingress Port</label>
+                <input type="text" id="rathole_public_port" name="rathole_public_port" class="form-control" value="{{ settings.get('rathole_public_port', '2333') }}" required>
+                <div class="form-hint">TCP listening port for reverse tunnel connections (default <code>2333</code>).</div>
+            </div>
+
+            <button type="submit" class="btn btn-primary" style="margin-top: 1.25rem; width: 100%; justify-content: center;">
+                Save and Apply Changes
+            </button>
+        </div>
+    </div>
+</form>
+
+<div class="card">
+    <div class="card-title">Client Sync Tokens (Zero-Touch Sync)</div>
+    <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.85rem;">
+        Active API tokens for authenticating the <code>edgeproxy-sync</code> agent running on local clients.
+    </p>
+
+    {% if sync_tokens %}
+    <table>
+        <thead>
+            <tr>
+                <th>Token</th>
+                <th>Device Label</th>
+                <th>Created At</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for t in sync_tokens %}
+            <tr>
+                <td><code style="color: #38bdf8;">{{ t.token }}</code></td>
+                <td><strong style="color: var(--text-primary);">{{ t.label }}</strong></td>
+                <td style="color: var(--text-muted); font-size: 0.75rem;">{{ t.created_at }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
+</div>
+
+<div class="card" style="margin-top: 1.5rem;">
+    <div class="card-title">Configuration Backup & Restore</div>
+    <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 1.25rem;">
+        Export the complete operational state (hosts, global settings, and sync tokens) into an atomic JSON snapshot file or restore from a previous backup.
+    </p>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 1.5rem; align-items: flex-start;">
+        <div style="flex: 1; min-width: 260px; background: rgba(255, 255, 255, 0.02); padding: 1rem; border-radius: 6px; border: 1px solid var(--border-subtle);">
+            <h4 style="margin: 0 0 0.5rem 0; font-size: 0.9rem; color: var(--text-primary);">Snapshot Export</h4>
+            <p style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 1rem;">
+                Download a timestamped JSON file containing the current database state.
+            </p>
+            <a href="/backup/export" class="btn btn-primary" style="display: inline-flex; align-items: center; gap: 0.5rem; text-decoration: none;">
+                ⬇ Export JSON Backup
+            </a>
+        </div>
+
+        <div style="flex: 1; min-width: 260px; background: rgba(255, 255, 255, 0.02); padding: 1rem; border-radius: 6px; border: 1px solid var(--border-subtle);">
+            <h4 style="margin: 0 0 0.5rem 0; font-size: 0.9rem; color: var(--text-primary);">Snapshot Restore</h4>
+            <p style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 1rem;">
+                Upload a previously exported JSON backup file to restore configurations and reapply them live.
+            </p>
+            <form action="/backup/import" method="POST" enctype="multipart/form-data" style="display: flex; flex-direction: column; gap: 0.75rem;">
+                <input type="file" name="file" accept=".json,application/json" class="form-control" required style="padding: 0.4rem;">
+                <button type="submit" class="btn btn-warning" style="align-self: flex-start; display: inline-flex; align-items: center; gap: 0.5rem;" onclick="return confirm('Warning: restoring will overwrite current database configuration. Proceed?')">
+                    ⬆ Restore JSON Backup
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

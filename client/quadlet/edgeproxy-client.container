@@ -1,0 +1,20 @@
+[Unit]
+Description=EdgeProxy Client (All-in-One)
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+ContainerName=edgeproxy-client
+Image=ghcr.io/vvelectron/edgeproxy-client:latest
+Network=host
+Volume=edgeproxy_client_data.volume:/etc/rathole:z
+Environment=SERVER_URL=https://auth.edge.mpv.cx
+Environment=SYNC_TOKEN=your_client_sync_token_here
+Environment=INTERVAL=15
+
+[Service]
+Restart=always
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

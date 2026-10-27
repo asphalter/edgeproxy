@@ -1,0 +1,280 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1>Host & Reverse Tunnel Management</h1>
+        <p style="color: var(--text-muted); font-size: 0.9rem;">Route public domains exposed by Caddy to private local backend services proxied by Rathole with granular authentication and security policies.</p>
+    </div>
+</div>
+
+<div class="grid-2" style="align-items: start;">
+    <!-- Add Host Form -->
+    <div class="card">
+        <div class="card-title">+ Register New Host</div>
+        <form action="/hosts/add" method="POST">
+            <div class="form-group">
+                <label for="domain">Public FQDN Domain</label>
+                <input type="text" id="domain" name="domain" class="form-control" placeholder="e.g. app.{{ settings.get('root_domain', 'example.com') }}" required>
+                <div class="form-hint">DNS A/CNAME record must resolve to your VPS public IPv4. Caddy issues and renews Let's Encrypt TLS certificates automatically.</div>
+            </div>
+
+            <div class="form-group">
+                <label for="upstream">Upstream Target Backend (Local / LAN)</label>
+                <input type="text" id="upstream" name="upstream" class="form-control" placeholder="e.g. https://10.88.0.100:9443 or http://192.168.1.50:8080" required>
+                <div class="form-hint">IP address and port reachable from the Rathole client inside your local private network.</div>
+            </div>
+
+            <div class="form-group">
+                <label for="allowed_emails">Google Allowed Emails for this Host (Optional)</label>
+                <input type="text" id="allowed_emails" name="allowed_emails" class="form-control" placeholder="e.g. user1@example.com, user2@example.com">
+                <div class="form-hint">Separate multiple email addresses with commas. If left blank, global allowed emails configured in Settings will apply.</div>
+            </div>
+
+            <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem;">
+                <input type="checkbox" id="tls_insecure_skip_verify" name="tls_insecure_skip_verify" value="1" style="width: 1.1rem; height: 1.1rem; accent-color: var(--primary);">
+                <label for="tls_insecure_skip_verify" style="margin-bottom: 0; cursor: pointer;">
+                    Ignore self-signed TLS certificates (TLS Insecure Skip Verify)
+                </label>
+            </div>
+
+            <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem;">
+                <input type="checkbox" id="security_headers" name="security_headers" value="1" checked style="width: 1.1rem; height: 1.1rem; accent-color: var(--primary);">
+                <label for="security_headers" style="margin-bottom: 0; cursor: pointer;">
+                    Enable HTTP Security Headers (HSTS, No-Sniff, SameOrigin Frame, Referrer Policy)
+                </label>
+            </div>
+
+            <div class="form-group" style="margin-top: 1rem;">
+                <label for="policy">Access Policy</label>
+                <select id="policy" name="policy" class="form-control">
+                    <option value="google_oauth" selected>Google OAuth2 (Login with Google account)</option>
+                    <option value="bypass">Public Bypass (Direct access without authentication)</option>
+                </select>
+                <div class="form-hint">Google OAuth2 enforces authentication via Google Sign-In. Public Bypass allows open unauthenticated access.</div>
+            </div>
+
+            <!-- WebSocket / Session Timeouts Section -->
+            <details style="margin-top: 1rem; margin-bottom: 1rem; border: 1px solid var(--border-color); border-radius: 6px; padding: 0.5rem 0.75rem;">
+                <summary style="cursor: pointer; font-weight: 500; font-size: 0.85rem; color: #38bdf8;">⚙️ WebSocket / Session Timeouts (Optional)</summary>
+                <div style="margin-top: 0.75rem;">
+                    <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.75rem;">
+                        Best practice defaults for standard HTTP/HTTPS. For long-lived WebSocket connections (e.g. remote desktops, terminals), set Read/Write Timeout = 0 and specify a large Idle Timeout.
+                    </div>
+                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem;">
+                        <div class="form-group" style="margin: 0;">
+                            <label for="ws_read_timeout" style="font-size: 0.75rem;">Read Timeout (s)</label>
+                            <input type="number" id="ws_read_timeout" name="ws_read_timeout" class="form-control" value="30">
+                        </div>
+                        <div class="form-group" style="margin: 0;">
+                            <label for="ws_write_timeout" style="font-size: 0.75rem;">Write Timeout (s)</label>
+                            <input type="number" id="ws_write_timeout" name="ws_write_timeout" class="form-control" value="30">
+                        </div>
+                        <div class="form-group" style="margin: 0;">
+                            <label for="ws_idle_timeout" style="font-size: 0.75rem;">Idle Timeout (s)</label>
+                            <input type="number" id="ws_idle_timeout" name="ws_idle_timeout" class="form-control" value="60">
+                        </div>
+                        <div class="form-group" style="margin: 0;">
+                            <label for="ws_flush_interval" style="font-size: 0.75rem;">Flush Interval (s)</label>
+                            <input type="number" id="ws_flush_interval" name="ws_flush_interval" class="form-control" value="-1">
+                        </div>
+                        <div class="form-group" style="margin: 0;">
+                            <label for="ws_dial_timeout" style="font-size: 0.75rem;">Dial Timeout (s)</label>
+                            <input type="number" id="ws_dial_timeout" name="ws_dial_timeout" class="form-control" value="10">
+                        </div>
+                        <div class="form-group" style="margin: 0;">
+                            <label for="ws_response_header_timeout" style="font-size: 0.75rem;">Response Header Timeout (s)</label>
+                            <input type="number" id="ws_response_header_timeout" name="ws_response_header_timeout" class="form-control" value="30">
+                        </div>
+                    </div>
+                </div>
+            </details>
+
+            <button type="submit" class="btn btn-primary" style="width: 100%; justify-content: center; margin-top: 0.5rem;">
+                Add Host and Generate Tunnel
+            </button>
+        </form>
+    </div>
+
+    <!-- Configured Hosts List with Inline Edit -->
+    <div class="card">
+        <div class="card-title">Configured Active Hosts</div>
+        {% if hosts %}
+        <div style="overflow-x: auto;">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Domain & Upstream</th>
+                        <th>Rathole Port</th>
+                        <th>Policy & Permissions</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for host in hosts %}
+                    <tr>
+                        <td>
+                            <div><strong style="color: #60a5fa;">{{ host.domain }}</strong></div>
+                            <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">
+                                ↳ <code style="color: #cbd5e1;">{{ host.upstream }}</code>
+                                {% if host.tls_insecure_skip_verify %}
+                                <span class="badge badge-warning" style="font-size: 0.7rem;">Insecure TLS</span>
+                                {% endif %}
+                            </div>
+                        </td>
+                        <td>
+                            <code>{{ host.rathole_port }}</code>
+                        </td>
+                        <td>
+                            {% if host.policy == 'google_oauth' %}
+                            <span class="badge" style="background: #2563eb; color: #ffffff; font-weight: 600;">Google OAuth2</span>
+                            {% elif host.policy == 'service_token' %}
+                            <span class="badge" style="background: #0ea5e9; color: #ffffff; font-weight: 600;">Service Token</span>
+                            <div style="margin-top: 0.35rem; font-size: 0.75rem; font-family: var(--font-mono); color: #94a3b8; display: flex; align-items: center; gap: 0.35rem;">
+                                <span>X-EdgeProxy-Token:</span>
+                                <code style="color: #38bdf8; background: #0f172a; padding: 2px 4px; border-radius: 3px;" id="tok-{{ host.id }}">{{ host.service_token }}</code>
+                                <button type="button" class="btn btn-sm" style="padding: 1px 5px; font-size: 0.7rem;" onclick="navigator.clipboard.writeText('{{ host.service_token }}'); this.textContent='✓'; setTimeout(() => this.textContent='Copy', 1500)">Copy</button>
+                            </div>
+                            {% else %}
+                            <span class="badge badge-warning">Public</span>
+                            {% endif %}
+
+                            {% if host.allowed_emails and host.policy == 'google_oauth' %}
+                            <div style="margin-top: 0.35rem; font-size: 0.75rem; color: #38bdf8;">
+                                👤 <strong>Emails:</strong> {{ host.allowed_emails }}
+                            </div>
+                            {% else %}
+                            <div style="margin-top: 0.35rem; font-size: 0.75rem; color: var(--text-muted);">
+                                🌐 Email: Global
+                            </div>
+                            {% endif %}
+
+                            {% if host.security_headers %}
+                            <div style="margin-top: 0.25rem;">
+                                <span class="badge" style="background: #059669; color: #ffffff; font-size: 0.7rem;">Sec Headers</span>
+                            </div>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div style="display: flex; gap: 0.35rem; align-items: center;">
+                                <button type="button" class="btn btn-secondary btn-sm" onclick="toggleEditModal({{ host.id }})">
+                                    ✏️ Edit
+                                </button>
+                                <form action="/hosts/{{ host.id }}/delete" method="POST" onsubmit="return confirm('Are you sure you want to delete host {{ host.domain }}?');" style="margin: 0;">
+                                    <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+                                </form>
+                            </div>
+                        </td>
+                    </tr>
+
+                    <!-- Inline Expandable Edit Modal Row -->
+                    <tr id="edit-row-{{ host.id }}" style="display: none; background: rgba(30, 41, 59, 0.7); border-left: 3px solid #38bdf8;">
+                        <td colspan="4" style="padding: 1.25rem;">
+                            <form action="/hosts/{{ host.id }}/edit" method="POST">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                                    <h4 style="margin: 0; color: #38bdf8; font-size: 0.95rem;">Edit Host: {{ host.domain }}</h4>
+                                    <button type="button" class="btn btn-secondary btn-sm" onclick="toggleEditModal({{ host.id }})">Cancel</button>
+                                </div>
+
+                                <div class="grid-2" style="gap: 1rem; margin-bottom: 0.75rem;">
+                                    <div class="form-group" style="margin: 0;">
+                                        <label for="edit_domain_{{ host.id }}">FQDN Domain</label>
+                                        <input type="text" id="edit_domain_{{ host.id }}" name="domain" class="form-control" value="{{ host.domain }}" required>
+                                    </div>
+                                    <div class="form-group" style="margin: 0;">
+                                        <label for="edit_upstream_{{ host.id }}">Upstream Target (Local/LAN)</label>
+                                        <input type="text" id="edit_upstream_{{ host.id }}" name="upstream" class="form-control" value="{{ host.upstream }}" required>
+                                    </div>
+                                </div>
+
+                                <div class="form-group" style="margin-bottom: 0.75rem;">
+                                    <label for="edit_emails_{{ host.id }}">Google Allowed Emails for this Host</label>
+                                    <input type="text" id="edit_emails_{{ host.id }}" name="allowed_emails" class="form-control" value="{{ host.allowed_emails or '' }}" placeholder="e.g. user1@example.com, user2@example.com">
+                                    <div class="form-hint">Leave blank to grant access to all globally configured email addresses.</div>
+                                </div>
+
+                                <div style="display: flex; gap: 1.5rem; margin-bottom: 1rem; flex-wrap: wrap;">
+                                    <div style="display: flex; align-items: center; gap: 0.4rem;">
+                                        <input type="checkbox" id="edit_tls_{{ host.id }}" name="tls_insecure_skip_verify" value="1" {% if host.tls_insecure_skip_verify %}checked{% endif %}>
+                                        <label for="edit_tls_{{ host.id }}" style="margin: 0; font-size: 0.85rem; cursor: pointer;">Skip Verify TLS</label>
+                                    </div>
+                                    <div style="display: flex; align-items: center; gap: 0.4rem;">
+                                        <input type="checkbox" id="edit_sec_{{ host.id }}" name="security_headers" value="1" {% if host.security_headers %}checked{% endif %}>
+                                        <label for="edit_sec_{{ host.id }}" style="margin: 0; font-size: 0.85rem; cursor: pointer;">Security Headers</label>
+                                    </div>
+                                    <div style="display: flex; align-items: center; gap: 0.4rem;">
+                                        <label for="edit_policy_{{ host.id }}" style="margin: 0; font-size: 0.85rem;">Policy:</label>
+                                        <select id="edit_policy_{{ host.id }}" name="policy" class="form-control" style="padding: 0.25rem 0.5rem; font-size: 0.85rem; width: auto;">
+                                            <option value="google_oauth" {% if host.policy == 'google_oauth' %}selected{% endif %}>Google OAuth2 (Login with Google account)</option>
+                                            <option value="service_token" {% if host.policy == 'service_token' %}selected{% endif %}>Service Token (Header X-EdgeProxy-Token)</option>
+                                            <option value="bypass" {% if host.policy == 'bypass' %}selected{% endif %}>Public Bypass (Direct access without authentication)</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div class="form-group" style="margin-bottom: 0.75rem;">
+                                    <label for="edit_service_token_{{ host.id }}">Service Token (Header X-EdgeProxy-Token)</label>
+                                    <input type="text" id="edit_service_token_{{ host.id }}" name="service_token" class="form-control" value="{{ host.service_token or '' }}" placeholder="Authentication token via header (leave blank to auto-generate if policy is Service Token)">
+                                </div>
+
+                                <!-- WebSocket / Session Timeouts Section in Edit Form -->
+                                <div style="margin-bottom: 1rem; border: 1px solid var(--border-color); border-radius: 6px; padding: 0.75rem; background: rgba(15, 23, 42, 0.5);">
+                                    <div style="font-weight: 500; font-size: 0.85rem; color: #38bdf8; margin-bottom: 0.35rem;">⚙️ WebSocket / Session Timeouts</div>
+                                    <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.75rem;">
+                                        Best practice defaults for standard HTTP/HTTPS. For long-lived WebSocket connections (e.g. remote desktops, terminals), set Read/Write Timeout = 0 and specify a large Idle Timeout.
+                                    </div>
+                                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem;">
+                                        <div class="form-group" style="margin: 0;">
+                                            <label for="edit_ws_read_{{ host.id }}" style="font-size: 0.75rem;">Read Timeout (s)</label>
+                                            <input type="number" id="edit_ws_read_{{ host.id }}" name="ws_read_timeout" class="form-control" value="{{ host.ws_read_timeout if host.ws_read_timeout is not none else 30 }}">
+                                        </div>
+                                        <div class="form-group" style="margin: 0;">
+                                            <label for="edit_ws_write_{{ host.id }}" style="font-size: 0.75rem;">Write Timeout (s)</label>
+                                            <input type="number" id="edit_ws_write_{{ host.id }}" name="ws_write_timeout" class="form-control" value="{{ host.ws_write_timeout if host.ws_write_timeout is not none else 30 }}">
+                                        </div>
+                                        <div class="form-group" style="margin: 0;">
+                                            <label for="edit_ws_idle_{{ host.id }}" style="font-size: 0.75rem;">Idle Timeout (s)</label>
+                                            <input type="number" id="edit_ws_idle_{{ host.id }}" name="ws_idle_timeout" class="form-control" value="{{ host.ws_idle_timeout if host.ws_idle_timeout is not none else 60 }}">
+                                        </div>
+                                        <div class="form-group" style="margin: 0;">
+                                            <label for="edit_ws_flush_{{ host.id }}" style="font-size: 0.75rem;">Flush Interval (s)</label>
+                                            <input type="number" id="edit_ws_flush_{{ host.id }}" name="ws_flush_interval" class="form-control" value="{{ host.ws_flush_interval if host.ws_flush_interval is not none else -1 }}">
+                                        </div>
+                                        <div class="form-group" style="margin: 0;">
+                                            <label for="edit_ws_dial_{{ host.id }}" style="font-size: 0.75rem;">Dial Timeout (s)</label>
+                                            <input type="number" id="edit_ws_dial_{{ host.id }}" name="ws_dial_timeout" class="form-control" value="{{ host.ws_dial_timeout if host.ws_dial_timeout is not none else 10 }}">
+                                        </div>
+                                        <div class="form-group" style="margin: 0;">
+                                            <label for="edit_ws_resp_{{ host.id }}" style="font-size: 0.75rem;">Response Header Timeout (s)</label>
+                                            <input type="number" id="edit_ws_resp_{{ host.id }}" name="ws_response_header_timeout" class="form-control" value="{{ host.ws_response_header_timeout if host.ws_response_header_timeout is not none else 30 }}">
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div style="display: flex; gap: 0.75rem; justify-content: flex-end;">
+                                    <button type="submit" class="btn btn-primary btn-sm">💾 Save Changes and Reload Services</button>
+                                </div>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p style="color: var(--text-muted); font-size: 0.9rem;">No hosts configured.</p>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+function toggleEditModal(hostId) {
+    const row = document.getElementById('edit-row-' + hostId);
+    if (row.style.display === 'none') {
+        row.style.display = 'table-row';
+    } else {
+        row.style.display = 'none';
+    }
+}
+</script>
+{% endblock %}

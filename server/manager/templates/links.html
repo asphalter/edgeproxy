@@ -1,0 +1,305 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
+    <div>
+        <h1>Link Telemetry & Status</h1>
+        <p style="color: var(--text-muted); font-size: 0.9rem;">Real-time monitoring of Rathole reverse tunnels, heartbeat telemetry, and remote Zero-Touch client agent logs.</p>
+    </div>
+    <div style="display: flex; gap: 0.5rem; align-items: center;">
+        <button class="btn btn-outline btn-sm" onclick="refreshData()" id="refreshBtn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+            <span>Refresh Data</span>
+        </button>
+    </div>
+</div>
+
+<!-- Zero-Touch Client Information Cards -->
+<div class="grid-3" style="margin-bottom: 1.5rem;">
+    <div class="card" style="margin-bottom: 0;">
+        <div class="card-title" style="margin-bottom: 0.5rem;">Client Sync Agent Status</div>
+        {% if clients and clients|length > 0 %}
+            {% set c = clients[0] %}
+            <div style="display: flex; align-items: baseline; gap: 0.5rem; margin-top: 0.25rem;">
+                <span class="status-dot" style="background-color: var(--success); box-shadow: 0 0 8px var(--success);"></span>
+                <span style="font-size: 1.1rem; font-weight: 600; color: #f8fafc;" id="client-name">{{ c.client_name }}</span>
+            </div>
+            <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.35rem;">
+                Host: <span style="color: #94a3b8;" id="client-host">{{ c.hostname or 'N/A' }}</span>
+                {% if c.remote_ip %}(<span id="client-ip">{{ c.remote_ip }}</span>){% endif %}
+            </div>
+            <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">
+                Uptime Agent: <span style="color: #38bdf8;" id="client-uptime">{{ c.uptime_seconds | format_uptime }}</span>
+            </div>
+        {% else %}
+            <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.25rem;">
+                <span class="status-dot" style="background-color: var(--text-muted);"></span>
+                <span style="font-size: 1.1rem; color: var(--text-muted);">No Active Agent</span>
+            </div>
+            <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.35rem;">
+                Run <code>edgeproxy-client</code> on your local backend.
+            </div>
+        {% endif %}
+    </div>
+
+    <div class="card" style="margin-bottom: 0;">
+        <div class="card-title" style="margin-bottom: 0.5rem;">Last Heartbeat Received</div>
+        {% if clients and clients|length > 0 %}
+            <div style="font-size: 1.1rem; font-weight: 600; color: #38bdf8; margin-top: 0.25rem;" id="client-last-seen">
+                {{ clients[0].last_seen[:19].replace('T', ' ') }}
+            </div>
+            <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.35rem;">
+                Version: <span style="color: #94a3b8;" id="client-version">{{ clients[0].version or 'N/A' }}</span>
+            </div>
+            <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">
+                Polling interval: <span style="color: #34d399;">15s</span>
+            </div>
+        {% else %}
+            <div style="font-size: 1.1rem; color: var(--text-muted); margin-top: 0.25rem;">-</div>
+            <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.35rem;">Telemetry offline</div>
+        {% endif %}
+    </div>
+
+    <div class="card" style="margin-bottom: 0;">
+        <div class="card-title" style="margin-bottom: 0.5rem;">Live Established Tunnels</div>
+        {% set up_count = 0 %}
+        {% for h in hosts %}
+            {% if h.link_state == 'up' %}{% set up_count = up_count + 1 %}{% endif %}
+        {% endfor %}
+        <div style="font-size: 1.4rem; font-weight: 700; color: {% if up_count > 0 %}#34d399{% else %}#f87171{% endif %}; margin-top: 0.25rem;" id="tunnels-count">
+            {{ up_count }} <span style="font-size: 0.9rem; color: var(--text-muted); font-weight: normal;">/ {{ hosts|length }} active</span>
+        </div>
+        <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.35rem;">
+            Protocol: <span style="color: #38bdf8;">Noise NN (WAN :2333)</span>
+        </div>
+        <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">
+            Multiplexed single TCP channel
+        </div>
+    </div>
+</div>
+
+<!-- Rathole Tunnel Status Table -->
+<div class="card" style="margin-bottom: 1.5rem;">
+    <div class="card-title">
+        <span>Reverse Tunnel Status (Live Link State)</span>
+        <span style="font-size: 0.75rem; text-transform: none; color: var(--text-muted); font-weight: normal;">Auto-refreshed every 5 seconds</span>
+    </div>
+
+    {% if hosts %}
+    <div style="overflow-x: auto;">
+        <table>
+            <thead>
+                <tr>
+                    <th>Domain</th>
+                    <th>Target Upstream (LAN)</th>
+                    <th>Rathole Port</th>
+                    <th>Link State</th>
+                    <th>Tunnel Uptime</th>
+                    <th>Last Seen</th>
+                </tr>
+            </thead>
+            <tbody id="hostsTableBody">
+                {% for host in hosts %}
+                <tr id="host-row-{{ host.id }}">
+                    <td>
+                        <strong style="color: #60a5fa; font-family: var(--font-mono);">{{ host.domain }}</strong>
+                    </td>
+                    <td>
+                        <code>{{ host.upstream }}</code>
+                    </td>
+                    <td>
+                        <code>:{{ host.rathole_port }}</code>
+                    </td>
+                    <td>
+                        {% if host.link_state == 'up' %}
+                        <span class="badge badge-success">
+                            <span class="status-dot"></span> UP (ONLINE)
+                        </span>
+                        {% else %}
+                        <span class="badge badge-danger">
+                            <span class="status-dot" style="background-color: #ef4444;"></span> DOWN (OFFLINE)
+                        </span>
+                        {% endif %}
+                    </td>
+                    <td style="font-family: var(--font-mono); font-size: 0.85rem; color: #94a3b8;">
+                        {% if host.link_state == 'up' and host.uptime_seconds %}
+                            {{ host.uptime_seconds | format_uptime }}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                    <td style="font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-muted);">
+                        {{ host.link_last_seen[:19].replace('T', ' ') if host.link_last_seen else '-' }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p style="color: var(--text-muted); font-size: 0.9rem;">No hosts registered in the system.</p>
+    {% endif %}
+</div>
+
+<!-- Client Logs Section -->
+<div class="card">
+    <div class="card-title">
+        <span>Client Agent Logs (Recent Activity)</span>
+        <span style="font-size: 0.75rem; text-transform: none; color: var(--text-muted); font-weight: normal;">Collected from Rathole Client & Sync Agent</span>
+    </div>
+
+    <div style="margin-bottom: 0.75rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+        <div style="font-size: 0.8rem; color: var(--text-muted);">
+            Log messages received automatically via <code>POST /api/v1/client/telemetry</code>.
+        </div>
+        <button type="button" class="btn btn-sm btn-outline" onclick="loadClientLogs()">Reload Logs</button>
+    </div>
+
+    <div style="background: #090b10; border: 1px solid var(--border-subtle); border-radius: 4px; padding: 0.75rem; max-height: 380px; overflow-y: auto; font-family: var(--font-mono); font-size: 0.75rem;" id="logsContainer">
+        {% if recent_logs %}
+            {% for log in recent_logs %}
+                <div style="margin-bottom: 0.35rem; line-height: 1.4; display: flex; gap: 0.5rem;">
+                    <span style="color: var(--text-dim); flex-shrink: 0;">[{{ log.created_at }}]</span>
+                    <span style="color: #38bdf8; font-weight: 600; flex-shrink: 0;">[{{ log.client_name }}]</span>
+                    {% if log.level == 'error' %}
+                        <span style="color: #ef4444; font-weight: 600; flex-shrink: 0;">[ERROR]</span>
+                        <span style="color: #fca5a5;">{{ log.message }}</span>
+                    {% elif log.level == 'warn' %}
+                        <span style="color: #f59e0b; font-weight: 600; flex-shrink: 0;">[WARN]</span>
+                        <span style="color: #fde68a;">{{ log.message }}</span>
+                    {% else %}
+                        <span style="color: #10b981; flex-shrink: 0;">[INFO]</span>
+                        <span style="color: #cbd5e1;">{{ log.message }}</span>
+                    {% endif %}
+                </div>
+            {% endfor %}
+        {% else %}
+            <div style="color: var(--text-muted); text-align: center; padding: 1.5rem 0;">
+                No client logs recorded yet. Start the Zero-Touch client agent to stream events.
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+function formatUptime(seconds) {
+    if (!seconds || seconds <= 0) return '0s';
+    const days = Math.floor(seconds / 86400);
+    let rem = seconds % 86400;
+    const hours = Math.floor(rem / 3600);
+    rem = rem % 3600;
+    const minutes = Math.floor(rem / 60);
+    const secs = rem % 60;
+    const parts = [];
+    if (days > 0) parts.push(days + 'd');
+    if (hours > 0) parts.push(hours + 'h');
+    if (minutes > 0) parts.push(minutes + 'm');
+    if (secs > 0 || parts.length === 0) parts.push(secs + 's');
+    return parts.join(' ');
+}
+
+async function refreshData() {
+    try {
+        const res = await fetch('/api/v1/links/status');
+        if (!res.ok) return;
+        const data = await res.json();
+
+        if (data.clients && data.clients.length > 0) {
+            const c = data.clients[0];
+            const nameEl = document.getElementById('client-name');
+            const hostEl = document.getElementById('client-host');
+            const uptimeEl = document.getElementById('client-uptime');
+            const lastSeenEl = document.getElementById('client-last-seen');
+            const verEl = document.getElementById('client-version');
+
+            if (nameEl) nameEl.textContent = c.client_name;
+            if (hostEl) hostEl.textContent = c.hostname || 'N/A';
+            if (uptimeEl) uptimeEl.textContent = formatUptime(c.uptime_seconds);
+            if (lastSeenEl && c.last_seen) lastSeenEl.textContent = c.last_seen.substring(0, 19).replace('T', ' ');
+            if (verEl) verEl.textContent = c.version || 'N/A';
+        }
+
+        if (data.hosts) {
+            let upCount = 0;
+            const tbody = document.getElementById('hostsTableBody');
+            if (tbody) {
+                tbody.innerHTML = data.hosts.map(h => {
+                    const isUp = h.link_state === 'up';
+                    if (isUp) upCount++;
+                    const statusBadge = isUp 
+                        ? `<span class="badge badge-success"><span class="status-dot"></span> UP (ONLINE)</span>`
+                        : `<span class="badge badge-danger"><span class="status-dot" style="background-color: #ef4444;"></span> DOWN (OFFLINE)</span>`;
+                    const uptimeStr = isUp && h.uptime_seconds ? formatUptime(h.uptime_seconds) : '-';
+                    const lastSeenStr = h.link_last_seen ? h.link_last_seen.substring(0, 19).replace('T', ' ') : '-';
+
+                    return `
+                        <tr id="host-row-${h.id}">
+                            <td><strong style="color: #60a5fa; font-family: var(--font-mono);">${h.domain}</strong></td>
+                            <td><code>${h.upstream}</code></td>
+                            <td><code>:${h.rathole_port}</code></td>
+                            <td>${statusBadge}</td>
+                            <td style="font-family: var(--font-mono); font-size: 0.85rem; color: #94a3b8;">${uptimeStr}</td>
+                            <td style="font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-muted);">${lastSeenStr}</td>
+                        </tr>
+                    `;
+                }).join('');
+            }
+            const countEl = document.getElementById('tunnels-count');
+            if (countEl) {
+                countEl.innerHTML = `${upCount} <span style="font-size: 0.9rem; color: var(--text-muted); font-weight: normal;">/ ${data.hosts.length} active</span>`;
+                countEl.style.color = upCount > 0 ? '#34d399' : '#f87171';
+            }
+        }
+    } catch (e) {
+        console.error('Failed to refresh link status:', e);
+    }
+}
+
+async function loadClientLogs() {
+    try {
+        const res = await fetch('/api/v1/links/client-logs?limit=100');
+        if (!res.ok) return;
+        const data = await res.json();
+        const container = document.getElementById('logsContainer');
+        if (!container) return;
+
+        if (!data.logs || data.logs.length === 0) {
+            container.innerHTML = `
+                <div style="color: var(--text-muted); text-align: center; padding: 1.5rem 0;">
+                    No client logs recorded yet. Start the Zero-Touch client agent to stream events.
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = data.logs.map(log => {
+            let lvlBadge = `<span style="color: #10b981; flex-shrink: 0;">[INFO]</span>`;
+            let msgStyle = `color: #cbd5e1;`;
+            if (log.level === 'error') {
+                lvlBadge = `<span style="color: #ef4444; font-weight: 600; flex-shrink: 0;">[ERROR]</span>`;
+                msgStyle = `color: #fca5a5;`;
+            } else if (log.level === 'warn') {
+                lvlBadge = `<span style="color: #f59e0b; font-weight: 600; flex-shrink: 0;">[WARN]</span>`;
+                msgStyle = `color: #fde68a;`;
+            }
+
+            return `
+                <div style="margin-bottom: 0.35rem; line-height: 1.4; display: flex; gap: 0.5rem;">
+                    <span style="color: var(--text-dim); flex-shrink: 0;">[${log.created_at}]</span>
+                    <span style="color: #38bdf8; font-weight: 600; flex-shrink: 0;">[${log.client_name}]</span>
+                    ${lvlBadge}
+                    <span style="${msgStyle}">${log.message}</span>
+                </div>
+            `;
+        }).join('');
+    } catch (e) {
+        console.error('Failed to load client logs:', e);
+    }
+}
+
+// Auto-refresh polling every 5 seconds
+setInterval(refreshData, 5000);
+// Auto-refresh logs every 15 seconds
+setInterval(loadClientLogs, 15000);
+</script>
+{% endblock %}

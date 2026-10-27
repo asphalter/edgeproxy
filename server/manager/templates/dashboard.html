@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Infrastructure Overview</h1>
+        <p class="page-desc">Telemetry and operational status of EdgeProxy, Caddy Reverse Proxy, Google OAuth2, and Rathole Tunnel</p>
+    </div>
+    <div style="display: flex; gap: 0.5rem;">
+        <a href="/hosts" class="btn btn-primary">+ Add Host</a>
+        <a href="/client-config" class="btn btn-secondary">Client Config</a>
+    </div>
+</div>
+
+{% if not oauth_configured %}
+<div class="alert alert-warning" style="margin-bottom: 1.5rem;">
+    <span style="font-size: 1.15rem; line-height: 1;">⚠️</span>
+    <div>
+        <strong>Warning:</strong> Google OAuth2 is not configured. Provide Client ID and Client Secret (or enable provider) to avoid blocking protected endpoints.
+    </div>
+</div>
+{% endif %}
+
+<!-- Top Metrics Grid -->
+<div class="grid-4" style="margin-bottom: 1.5rem;">
+    <div class="stat-card">
+        <div class="stat-label">Active Host Tunnels</div>
+        <div class="stat-val" style="color: #38bdf8;">{{ active_hosts_count }} <span style="font-size: 0.95rem; color: var(--text-dim); font-weight: normal;">/ {{ total_hosts_count }}</span></div>
+        <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.35rem; font-family: var(--font-mono);">Rathole WAN :2333</div>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-label">Google OAuth2</div>
+        <div class="stat-val">
+            {% if settings.get('google_oauth_enabled') in ('1', 1, 'true', True) %}
+            <span style="color: #34d399; font-size: 1.25rem; display: flex; align-items: center; gap: 0.4rem;">
+                <span class="status-dot"></span> ENABLED
+            </span>
+            {% else %}
+            <span style="color: var(--text-dim); font-size: 1.1rem;">DISABLED</span>
+            {% endif %}
+        </div>
+        <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.35rem; font-family: var(--font-mono);">
+            {% if settings.get('google_client_id') %}Client ID Configured{% else %}<a href="/settings" style="color: #38bdf8;">Configure credentials</a>{% endif %}
+        </div>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-label">OAuth2 Protected Hosts</div>
+        <div class="stat-val" style="color: #60a5fa;">{{ live_links_count }} <span style="font-size: 0.95rem; color: var(--text-dim); font-weight: normal;">/ {{ total_hosts_count }}</span></div>
+        <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.35rem; font-family: var(--font-mono);">Perimeter Auth</div>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-label">Root Domain</div>
+        <div class="stat-val" style="font-size: 1.1rem; color: #f8fafc; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+            {{ settings.get('root_domain', 'N/A') }}
+        </div>
+        <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.35rem; font-family: var(--font-mono);">ACME: {{ settings.get('acme_email', 'N/A') }}</div>
+    </div>
+</div>
+
+<!-- Registered Hosts Table -->
+<div class="card">
+    <div class="card-title">
+        <span>Host Status & Virtual Routing</span>
+        <a href="/hosts" class="btn btn-secondary btn-sm">Manage All</a>
+    </div>
+
+    {% if hosts %}
+    <div style="overflow-x: auto;">
+        <table>
+            <thead>
+                <tr>
+                    <th>FQDN Domain</th>
+                    <th>Upstream Backend (LAN Target)</th>
+                    <th>Rathole Port</th>
+                    <th>Auth Policy</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for host in hosts %}
+                <tr>
+                    <td>
+                        <strong style="color: #60a5fa; font-family: var(--font-mono);">{{ host.domain }}</strong>
+                    </td>
+                    <td>
+                        <code>{{ host.upstream }}</code>
+                        {% if host.tls_insecure_skip_verify %}
+                        <span class="badge badge-bypass" style="font-size: 0.65rem;">Skip TLS</span>
+                        {% endif %}
+                    </td>
+                    <td><code>{{ host.rathole_port }}</code></td>
+                    <td>
+                        {% if host.policy == 'google_oauth' %}
+                        <span class="badge badge-oauth">Google OAuth2</span>
+                        {% elif host.policy == 'service_token' %}
+                        <span class="badge badge-warning">Service Token</span>
+                        {% else %}
+                        <span class="badge badge-bypass">Public Bypass</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if host.enabled %}
+                        <span class="badge badge-success">Active</span>
+                        {% else %}
+                        <span class="badge badge-neutral">Off</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p style="color: var(--text-muted); font-size: 0.85rem; font-family: var(--font-mono);">No hosts registered. Configure the first endpoint in the Hosts & Tunnels tab.</p>
+    {% endif %}
+</div>
+
+<!-- System Components -->
+<div class="card">
+    <div class="card-title">Podman Pod Topology (Localhost Mesh)</div>
+    <div class="grid-3" style="gap: 1rem;">
+        <div style="background: #0a0d16; border: 1px solid var(--border-subtle); padding: 0.85rem 1rem; border-radius: 4px;">
+            <div style="font-size: 0.7rem; font-family: var(--font-mono); color: var(--text-muted);">EDGE PROXY & TLS</div>
+            <div style="font-weight: 700; color: #f8fafc; font-size: 0.95rem; margin: 0.25rem 0;">Caddy Server</div>
+            <div style="font-size: 0.75rem; color: #34d399; font-family: var(--font-mono);">● Ports :80, :443 (TCP/UDP QUIC)</div>
+        </div>
+
+        <div style="background: #0a0d16; border: 1px solid var(--border-subtle); padding: 0.85rem 1rem; border-radius: 4px;">
+            <div style="font-size: 0.7rem; font-family: var(--font-mono); color: var(--text-muted);">IDENTITY PROVIDER</div>
+            <div style="font-weight: 700; color: #f8fafc; font-size: 0.95rem; margin: 0.25rem 0;">OAuth2-Proxy</div>
+            <div style="font-size: 0.75rem; color: #60a5fa; font-family: var(--font-mono);">● Google OIDC :4180</div>
+        </div>
+
+        <div style="background: #0a0d16; border: 1px solid var(--border-subtle); padding: 0.85rem 1rem; border-radius: 4px;">
+            <div style="font-size: 0.7rem; font-family: var(--font-mono); color: var(--text-muted);">REVERSE TUNNEL</div>
+            <div style="font-weight: 700; color: #f8fafc; font-size: 0.95rem; margin: 0.25rem 0;">Rathole Server</div>
+            <div style="font-size: 0.75rem; color: #f59e0b; font-family: var(--font-mono);">● TCP WAN :2333</div>
+        </div>
+    </div>
+</div>
+{% endblock %}
