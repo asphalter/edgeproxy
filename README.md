@@ -5,7 +5,7 @@
 # EdgeProxy
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![OCI Images](https://img.shields.io/badge/Registry-GHCR.io-blue?logo=github)](https://github.com/vvelectron/edgeproxy/pkgs/container/edgeproxy-server)
+[![OCI Images](https://img.shields.io/badge/Registry-GHCR.io-blue?logo=github)](https://github.com/asphalter/edgeproxy/pkgs/container/edgeproxy-server)
 [![Podman Quadlet](https://img.shields.io/badge/Deployment-Podman%20Quadlet-purple?logo=podman)](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html)
 [![Protocol](https://img.shields.io/badge/Transport-Noise__NN__25519-green)](https://noiseprotocol.org/)
 
@@ -109,7 +109,7 @@ Wants=network-online.target
 
 [Container]
 ContainerName=edgeproxy-server
-Image=ghcr.io/vvelectron/edgeproxy-server:latest
+Image=ghcr.io/asphalter/edgeproxy-server:latest
 PublishPort=80:80/tcp
 PublishPort=443:443/tcp
 PublishPort=443:443/udp
@@ -191,7 +191,7 @@ Wants=network-online.target
 
 [Container]
 ContainerName=edgeproxy-client
-Image=ghcr.io/vvelectron/edgeproxy-client:latest
+Image=ghcr.io/asphalter/edgeproxy-client:latest
 Network=host
 Volume=edgeproxy_client_data.volume:/etc/rathole:z
 Environment=SERVER_URL=https://auth.yourdomain.com
@@ -260,7 +260,7 @@ To build both OCI container images locally from source:
 
 ```bash
 # Clone the repository
-git clone https://github.com/vvelectron/edgeproxy.git
+git clone https://github.com/asphalter/edgeproxy.git
 cd edgeproxy
 
 # Build both images locally

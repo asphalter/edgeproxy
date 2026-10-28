@@ -5,7 +5,7 @@ Wants=network-online.target
 
 [Container]
 ContainerName=edgeproxy-client
-Image=ghcr.io/vvelectron/edgeproxy-client:latest
+Image=ghcr.io/asphalter/edgeproxy-client:latest
 Network=host
 Volume=edgeproxy_client_data.volume:/etc/rathole:z
 Environment=SERVER_URL=https://auth.example.com

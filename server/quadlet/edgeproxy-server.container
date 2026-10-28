@@ -5,7 +5,7 @@ Wants=network-online.target
 
 [Container]
 ContainerName=edgeproxy-server
-Image=ghcr.io/vvelectron/edgeproxy-server:latest
+Image=ghcr.io/asphalter/edgeproxy-server:latest
 PublishPort=80:80/tcp
 PublishPort=443:443/tcp
 PublishPort=443:443/udp
