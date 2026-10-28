@@ -688,12 +688,44 @@ async def backup_import(request: Request, file: UploadFile = File(...)):
 # --- Traffic Stats and Access Logs Endpoints ---
 
 @app.get("/stats", response_class=HTMLResponse)
-async def stats_view(request: Request):
-    """Render traffic statistics and Caddy access logs view."""
+async def stats_view(
+    request: Request,
+    host: Optional[str] = None,
+    status: Optional[str] = None,
+    ip: Optional[str] = None,
+    limit: int = 25
+):
+    """Render traffic statistics and Caddy access logs view with optional initial pre-filtering."""
+    safe_limit = min(max(1, limit), 200)
+    filter_host = host.strip() if host else None
+    filter_status = status.strip() if status else None
+    filter_ip = ip.strip() if ip else None
+
     hosts = db.get_all_hosts()
     settings = db.get_settings()
-    recent_logs = db.get_recent_access_logs(limit=25)
+    recent_logs = db.get_recent_access_logs(
+        host=filter_host,
+        status=filter_status,
+        ip=filter_ip,
+        limit=safe_limit
+    )
     host_traffic = db.get_all_host_traffic_stats()
+
+    active_clients = db.get_client_status() if hasattr(db, "get_client_status") else db.get_active_clients()
+    client_status = "offline"
+    client_name = "None"
+    client_latency_ms = 0.0
+
+    if active_clients:
+        latest = active_clients[0]
+        client_name = latest["client_name"]
+        client_latency_ms = float(latest.get("latency_ms", 0.0) or 0.0)
+        try:
+            ls_dt = datetime.fromisoformat(latest["last_seen"].replace("Z", "+00:00"))
+            if (datetime.now(timezone.utc) - ls_dt).total_seconds() < 45:
+                client_status = "online"
+        except Exception:
+            client_status = "offline"
 
     return templates.TemplateResponse(request=request, name="stats.html", context={
         "page_title": "Statistics",
@@ -701,6 +733,13 @@ async def stats_view(request: Request):
         "settings": settings,
         "recent_logs": recent_logs,
         "host_traffic": host_traffic,
+        "filter_host": filter_host or "",
+        "filter_status": filter_status or "",
+        "filter_ip": filter_ip or "",
+        "limit": safe_limit,
+        "client_status": client_status,
+        "client_name": client_name,
+        "client_latency_ms": client_latency_ms,
     })
 
 
@@ -728,11 +767,25 @@ async def stats_traffic_reset(request: Request, host: Optional[str] = Form(None)
 
 
 @app.get("/api/v1/stats/access-logs")
-async def api_stats_access_logs(limit: int = 50, host: Optional[str] = None):
-    """Retrieve recent access logs with optional host filter."""
+@app.get("/api/v1/stats/access")
+async def api_stats_access(
+    limit: int = 50,
+    host: Optional[str] = None,
+    status: Optional[str] = None,
+    ip: Optional[str] = None
+):
+    """Retrieve recent access logs with host, status, and IP filtering."""
     safe_limit = min(max(1, limit), 200)
     filter_host = host.strip() if host else None
-    logs = db.get_recent_access_logs(limit=safe_limit, filter_host=filter_host)
+    filter_status = status.strip() if status else None
+    filter_ip = ip.strip() if ip else None
+    logs = await asyncio.to_thread(
+        db.get_recent_access_logs,
+        host=filter_host,
+        status=filter_status,
+        ip=filter_ip,
+        limit=safe_limit
+    )
     return {"status": "ok", "logs": logs, "count": len(logs)}
 
 
@@ -749,12 +802,6 @@ async def api_stats_bandwidth_timeline(hours: int = 24, host: Optional[str] = No
         "datasets": data.get("datasets", []),
         "data": data
     }
-
-
-@app.get("/api/v1/stats/access")
-async def api_stats_access_alias(limit: int = 50, host: Optional[str] = None):
-    """Alias for access logs endpoint."""
-    return await api_stats_access_logs(limit=limit, host=host)
 
 
 @app.get("/api/v1/stats/latency")

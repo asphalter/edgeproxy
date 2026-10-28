@@ -61,9 +61,35 @@
     </div>
 
     <div class="stat-card">
-        <div class="stat-label">Recorded Requests</div>
-        <div class="stat-val" style="color: #34d399;" id="statTotalRequests">0</div>
-        <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.35rem; font-family: var(--font-mono);">Ingested access entries</div>
+        <div class="stat-label">Tunnel Latency</div>
+        <div class="stat-val">
+            {% if client_status == 'online' and client_latency_ms > 0 %}
+                {% if client_latency_ms < 50 %}
+                <span style="color: #34d399; font-size: 1.25rem; display: flex; align-items: center; gap: 0.4rem;">
+                    {{ client_latency_ms }} <span style="font-size: 0.85rem; font-weight: normal; color: var(--text-dim);">ms</span>
+                    <span class="badge badge-success" style="font-size: 0.65rem; margin-left: 0.25rem;">Optimal</span>
+                </span>
+                {% elif client_latency_ms < 150 %}
+                <span style="color: #fbbf24; font-size: 1.25rem; display: flex; align-items: center; gap: 0.4rem;">
+                    {{ client_latency_ms }} <span style="font-size: 0.85rem; font-weight: normal; color: var(--text-dim);">ms</span>
+                    <span class="badge badge-warning" style="font-size: 0.65rem; margin-left: 0.25rem;">Acceptable</span>
+                </span>
+                {% else %}
+                <span style="color: #f87171; font-size: 1.25rem; display: flex; align-items: center; gap: 0.4rem;">
+                    {{ client_latency_ms }} <span style="font-size: 0.85rem; font-weight: normal; color: var(--text-dim);">ms</span>
+                    <span class="badge badge-danger" style="font-size: 0.65rem; margin-left: 0.25rem;">High</span>
+                </span>
+                {% endif %}
+            {% elif client_status == 'online' %}
+                <span style="color: #34d399; font-size: 1.25rem; display: flex; align-items: center; gap: 0.4rem;">
+                    < 1 <span style="font-size: 0.85rem; font-weight: normal; color: var(--text-dim);">ms</span>
+                    <span class="badge badge-success" style="font-size: 0.65rem; margin-left: 0.25rem;">Optimal</span>
+                </span>
+            {% else %}
+                <span style="color: var(--text-dim); font-size: 1.1rem;">Offline</span>
+            {% endif %}
+        </div>
+        <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.35rem; font-family: var(--font-mono);">Client: {{ client_name }}</div>
     </div>
 
     <div class="stat-card">
@@ -131,7 +157,8 @@
             <thead>
                 <tr>
                     <th style="width: 220px;">Host FQDN</th>
-                    <th style="width: 140px;">Outbound Data</th>
+                    <th style="width: 140px;">Daily Outbound (24h)</th>
+                    <th style="width: 140px;">Outbound (30d)</th>
                     <th style="width: 130px;">Total Requests</th>
                     <th style="width: 180px;">Last Reset</th>
                     <th>Next Auto-Reset</th>
@@ -145,6 +172,9 @@
                         <td style="font-family: var(--font-mono); font-weight: 600; color: #f1f5f9;">
                             {{ t.host }}
                         </td>
+                        <td style="font-family: var(--font-mono); font-weight: 600; color: #34d399;">
+                            {{ t.bytes_today_formatted }}
+                        </td>
                         <td style="font-family: var(--font-mono); font-weight: 600; color: #38bdf8;">
                             {{ t.formatted_bytes }}
                         </td>
@@ -156,9 +186,9 @@
                         </td>
                         <td>
                             {% if t.days_remaining <= 3 %}
-                            <span class="badge badge-warning" style="font-size: 0.72rem;">{{ t.days_remaining }}d left</span>
+                            <span class="badge badge-warning" style="font-size: 0.72rem; font-family: var(--font-mono);">in {{ t.days_remaining }}d</span>
                             {% else %}
-                            <span class="badge badge-success" style="font-size: 0.72rem;">{{ t.days_remaining }}d left</span>
+                            <span class="badge badge-neutral" style="font-size: 0.72rem; font-family: var(--font-mono); color: var(--text-muted); text-transform: none;">in {{ t.days_remaining }}d</span>
                             {% endif %}
                         </td>
                         <td style="text-align: right;">
@@ -173,7 +203,7 @@
                     {% endfor %}
                 {% else %}
                     <tr>
-                        <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 1.5rem; font-family: var(--font-mono);">
+                        <td colspan="7" style="text-align: center; color: var(--text-muted); padding: 1.5rem; font-family: var(--font-mono);">
                             No host traffic stats recorded yet.
                         </td>
                     </tr>
@@ -187,7 +217,60 @@
 <div class="card">
     <div class="card-title">
         <span>Recent Access Logs (Caddy JSON Access Logs)</span>
-        <span class="badge badge-neutral" id="accessCountBadge">0 records</span>
+        <span class="badge badge-neutral" id="accessCountBadge">{{ recent_logs | length if recent_logs is defined else 0 }} records</span>
+    </div>
+
+    <!-- Terminal/Dark Filter Bar for Access Logs -->
+    <div style="background: rgba(10, 13, 20, 0.85); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 0.85rem 1rem; margin-bottom: 1.25rem; display: flex; flex-wrap: wrap; gap: 0.85rem; align-items: flex-end;">
+        <div style="flex: 1; min-width: 170px;">
+            <label for="logHostFilter" style="font-size: 0.7rem; text-transform: uppercase; color: var(--text-muted); font-family: var(--font-mono); margin-bottom: 0.35rem; display: block; letter-spacing: 0.5px;">Select Host</label>
+            <select id="logHostFilter" class="form-control" style="background: var(--bg-input); color: var(--text-primary); border: 1px solid var(--border-subtle); padding: 0.45rem 0.65rem; border-radius: 4px; width: 100%; font-family: var(--font-mono); font-size: 0.8rem;" onchange="loadAccessLogs()">
+                <option value="">All Hosts</option>
+                {% for h in hosts %}
+                <option value="{{ h.domain }}" {% if filter_host == h.domain %}selected{% endif %}>{{ h.domain }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div style="width: 185px;">
+            <label for="logStatusFilter" style="font-size: 0.7rem; text-transform: uppercase; color: var(--text-muted); font-family: var(--font-mono); margin-bottom: 0.35rem; display: block; letter-spacing: 0.5px;">Select Status / Outcome</label>
+            <select id="logStatusFilter" class="form-control" style="background: var(--bg-input); color: var(--text-primary); border: 1px solid var(--border-subtle); padding: 0.45rem 0.65rem; border-radius: 4px; width: 100%; font-family: var(--font-mono); font-size: 0.8rem;" onchange="loadAccessLogs()">
+                <option value="" {% if not filter_status %}selected{% endif %}>All Statuses</option>
+                <option value="2xx" {% if filter_status == '2xx' %}selected{% endif %}>2xx (Success)</option>
+                <option value="3xx" {% if filter_status == '3xx' %}selected{% endif %}>3xx (Redirect)</option>
+                <option value="401" {% if filter_status == '401' %}selected{% endif %}>401 (Unauthorized)</option>
+                <option value="403" {% if filter_status == '403' %}selected{% endif %}>403 (Forbidden)</option>
+                <option value="404" {% if filter_status == '404' %}selected{% endif %}>404 (Not Found)</option>
+                <option value="5xx" {% if filter_status == '5xx' %}selected{% endif %}>5xx (Server Error)</option>
+            </select>
+        </div>
+
+        <div style="flex: 1.3; min-width: 220px;">
+            <label for="logIpFilter" style="font-size: 0.7rem; text-transform: uppercase; color: var(--text-muted); font-family: var(--font-mono); margin-bottom: 0.35rem; display: block; letter-spacing: 0.5px;">Client IP</label>
+            <div style="position: relative;">
+                <svg style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); width: 14px; height: 14px; color: var(--text-muted); pointer-events: none;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="11" cy="11" r="8"></circle>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+                <input type="text" id="logIpFilter" class="form-control" placeholder="Filter by Client IP (e.g. 192.168. or 93.38.)" value="{{ filter_ip }}" style="background: var(--bg-input); color: var(--text-primary); border: 1px solid var(--border-subtle); padding: 0.45rem 0.65rem 0.45rem 2rem; border-radius: 4px; width: 100%; font-family: var(--font-mono); font-size: 0.8rem;" onkeydown="if(event.key==='Enter') loadAccessLogs()">
+            </div>
+        </div>
+
+        <div style="display: flex; gap: 0.4rem; align-items: flex-end;">
+            <button type="button" class="btn btn-primary" onclick="loadAccessLogs()" style="padding: 0.45rem 0.85rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.35rem;">
+                <svg style="width: 13px; height: 13px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
+                </svg>
+                Filter
+            </button>
+            <button type="button" class="btn btn-secondary" onclick="resetAccessFilters()" style="padding: 0.45rem 0.85rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.35rem;">
+                <svg style="width: 13px; height: 13px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+                    <path d="M3 3v5h5"></path>
+                </svg>
+                Reset
+            </button>
+        </div>
     </div>
 
     <div style="overflow-x: auto;">
@@ -204,11 +287,42 @@
                 </tr>
             </thead>
             <tbody id="accessLogsTableBody">
-                <tr>
-                    <td colspan="7" style="text-align: center; color: var(--text-muted); padding: 1.5rem; font-family: var(--font-mono);">
-                        Loading access logs...
-                    </td>
-                </tr>
+                {% if recent_logs %}
+                    {% for l in recent_logs %}
+                    {% set code = l.status | int %}
+                    <tr>
+                        <td style="font-family: var(--font-mono); color: var(--text-muted); font-size: 0.75rem;">{{ l.ts or l.created_at or '' }}</td>
+                        <td style="font-family: var(--font-mono); color: #38bdf8; font-weight: 600;">{{ l.host or '' }}</td>
+                        <td style="font-family: var(--font-mono); color: var(--text-secondary);">{{ l.remote_ip or '' }}</td>
+                        <td style="font-family: var(--font-mono); color: var(--text-primary); max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ l.uri or '' }}">
+                            {{ l.uri or '/' }}
+                        </td>
+                        <td>
+                            <span class="badge" style="font-size: 0.7rem; padding: 0.15rem 0.45rem;
+                                {% if code >= 200 and code < 300 %}
+                                    background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3); color: #34d399;
+                                {% elif code >= 300 and code < 400 %}
+                                    background: rgba(6, 182, 212, 0.15); border: 1px solid rgba(6, 182, 212, 0.3); color: #22d3ee;
+                                {% elif code in [401, 403, 404] or (code >= 400 and code < 500) %}
+                                    background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.3); color: #fbbf24;
+                                {% elif code >= 500 %}
+                                    background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); color: #f87171;
+                                {% else %}
+                                    background: #1e2438; border: 1px solid #334155; color: #94a3b8;
+                                {% endif %}
+                            ">{{ l.status }}</span>
+                        </td>
+                        <td style="font-family: var(--font-mono); color: var(--text-secondary);">{{ l.bytes_out or l.bytes or 0 }} B</td>
+                        <td style="font-family: var(--font-mono); color: var(--text-muted);">{{ "%.1f"|format(l.duration_ms or 0.0) }} ms</td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="7" style="text-align: center; color: var(--text-muted); padding: 1.5rem; font-family: var(--font-mono);">
+                            Loading access logs...
+                        </td>
+                    </tr>
+                {% endif %}
             </tbody>
         </table>
     </div>
@@ -386,27 +500,51 @@
         }
     }
 
+    function resetAccessFilters() {
+        const hostFilter = document.getElementById('logHostFilter');
+        const statusFilter = document.getElementById('logStatusFilter');
+        const ipFilter = document.getElementById('logIpFilter');
+        if (hostFilter) {
+            hostFilter.value = '';
+            delete hostFilter.dataset.manuallySet;
+        }
+        if (statusFilter) statusFilter.value = '';
+        if (ipFilter) ipFilter.value = '';
+        loadAccessLogs();
+    }
+
     async function loadAccessLogs() {
-        const host = document.getElementById('hostSelect').value;
-        const limit = document.getElementById('limitSelect').value;
+        const logHostElem = document.getElementById('logHostFilter');
+        const hostSelectElem = document.getElementById('hostSelect');
+        const host = (logHostElem?.value !== undefined && logHostElem.value !== '' ? logHostElem.value : (hostSelectElem?.value || '')).trim();
+        const status = (document.getElementById('logStatusFilter')?.value || '').trim();
+        const ip = (document.getElementById('logIpFilter')?.value || '').trim();
+        const limit = (document.getElementById('limitSelect')?.value || '50').trim();
         const tbody = document.getElementById('accessLogsTableBody');
         const badge = document.getElementById('accessCountBadge');
 
         try {
-            const url = `/api/v1/stats/access-logs?host=${encodeURIComponent(host)}&limit=${encodeURIComponent(limit)}`;
+            const params = new URLSearchParams();
+            if (host) params.append('host', host);
+            if (status) params.append('status', status);
+            if (ip) params.append('ip', ip);
+            if (limit) params.append('limit', limit);
+
+            const url = `/api/v1/stats/access?${params.toString()}`;
             const res = await fetch(url);
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const data = await res.json();
             const logs = data.logs || [];
 
             badge.textContent = `${logs.length} records`;
-            document.getElementById('statTotalRequests').textContent = logs.length;
+            const statTotalReq = document.getElementById('statTotalRequests');
+            if (statTotalReq) statTotalReq.textContent = logs.length;
 
             if (logs.length === 0) {
                 tbody.innerHTML = `
                     <tr>
                         <td colspan="7" style="text-align: center; color: var(--text-muted); padding: 1.5rem; font-family: var(--font-mono);">
-                            No recent access logs recorded.
+                            No recent access logs recorded matching criteria.
                         </td>
                     </tr>
                 `;
@@ -414,22 +552,30 @@
             }
 
             tbody.innerHTML = logs.map(l => {
-                let statusBadge = 'badge-neutral';
-                if (l.status >= 200 && l.status < 300) statusBadge = 'badge-success';
-                else if (l.status >= 300 && l.status < 400) statusBadge = 'badge-bypass';
-                else if (l.status >= 400 && l.status < 500) statusBadge = 'badge-oauth';
-                else if (l.status >= 500) statusBadge = 'badge-neutral';
+                let badgeStyle = '';
+                const code = parseInt(l.status, 10);
+                if (code >= 200 && code < 300) {
+                    badgeStyle = 'background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3); color: #34d399;';
+                } else if (code >= 300 && code < 400) {
+                    badgeStyle = 'background: rgba(6, 182, 212, 0.15); border: 1px solid rgba(6, 182, 212, 0.3); color: #22d3ee;';
+                } else if (code === 401 || code === 403 || code === 404 || (code >= 400 && code < 500)) {
+                    badgeStyle = 'background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.3); color: #fbbf24;';
+                } else if (code >= 500) {
+                    badgeStyle = 'background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); color: #f87171;';
+                } else {
+                    badgeStyle = 'background: #1e2438; border: 1px solid #334155; color: #94a3b8;';
+                }
 
                 return `
                     <tr>
-                        <td style="font-family: var(--font-mono); color: var(--text-muted); font-size: 0.75rem;">${l.ts || l.created_at || ''}</td>
-                        <td style="font-family: var(--font-mono); color: #38bdf8; font-weight: 600;">${l.host || ''}</td>
-                        <td style="font-family: var(--font-mono); color: var(--text-secondary);">${l.remote_ip || ''}</td>
-                        <td style="font-family: var(--font-mono); color: var(--text-primary); max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${l.uri || ''}">
-                            ${l.uri || '/'}
+                        <td style="font-family: var(--font-mono); color: var(--text-muted); font-size: 0.75rem;">${escapeHtml(l.ts || l.created_at || '')}</td>
+                        <td style="font-family: var(--font-mono); color: #38bdf8; font-weight: 600;">${escapeHtml(l.host || '')}</td>
+                        <td style="font-family: var(--font-mono); color: var(--text-secondary);">${escapeHtml(l.remote_ip || '')}</td>
+                        <td style="font-family: var(--font-mono); color: var(--text-primary); max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(l.uri || '')}">
+                            ${escapeHtml(l.uri || '/')}
                         </td>
                         <td>
-                            <span class="badge ${statusBadge}" style="font-size: 0.7rem; padding: 0.15rem 0.4rem;">${l.status}</span>
+                            <span class="badge" style="font-size: 0.7rem; padding: 0.15rem 0.45rem; ${badgeStyle}">${l.status}</span>
                         </td>
                         <td style="font-family: var(--font-mono); color: var(--text-secondary);">${formatBytes(l.bytes_out || l.bytes || 0)}</td>
                         <td style="font-family: var(--font-mono); color: var(--text-muted);">${(l.duration_ms || 0).toFixed(1)} ms</td>
@@ -442,7 +588,7 @@
             tbody.innerHTML = `
                 <tr>
                     <td colspan="7" style="text-align: center; color: #f87171; padding: 1.5rem; font-family: var(--font-mono);">
-                        Error communicating with stats telemetry API.
+                        Failed to load access logs: ${escapeHtml(err.message)}
                     </td>
                 </tr>
             `;
@@ -581,21 +727,26 @@
         if (!tbody) return;
 
         if (!trafficList || trafficList.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 1.5rem; font-family: var(--font-mono);">No host traffic stats recorded yet.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 1.5rem; font-family: var(--font-mono);">No host traffic stats recorded yet.</td></tr>`;
             return;
         }
 
         let html = '';
         for (const t of trafficList) {
             const daysLeft = t.days_remaining != null ? t.days_remaining : 30;
-            const badgeClass = daysLeft <= 3 ? 'badge-warning' : 'badge-success';
+            const badgeClass = daysLeft <= 3 ? 'badge-warning' : 'badge-neutral';
+            const badgeStyle = daysLeft <= 3 ? 'font-size: 0.72rem; font-family: var(--font-mono);' : 'font-size: 0.72rem; font-family: var(--font-mono); color: var(--text-muted); text-transform: none;';
             const fmtBytes = t.formatted_bytes || formatBytes(t.bytes_out);
+            const fmtToday = t.bytes_today_formatted || formatBytes(t.bytes_today || 0);
             const hostEscaped = escapeHtml(t.host);
 
             html += `
             <tr style="border-bottom: 1px solid var(--border-subtle);">
                 <td style="font-family: var(--font-mono); font-weight: 600; color: #f1f5f9;">
                     ${hostEscaped}
+                </td>
+                <td style="font-family: var(--font-mono); font-weight: 600; color: #34d399;">
+                    ${fmtToday}
                 </td>
                 <td style="font-family: var(--font-mono); font-weight: 600; color: #38bdf8;">
                     ${fmtBytes}
@@ -607,7 +758,7 @@
                     ${escapeHtml(t.last_reset || '')}
                 </td>
                 <td>
-                    <span class="badge ${badgeClass}" style="font-size: 0.72rem;">${daysLeft}d left</span>
+                    <span class="badge ${badgeClass}" style="${badgeStyle}">in ${daysLeft}d</span>
                 </td>
                 <td style="text-align: right;">
                     <form method="POST" action="/stats/traffic/reset" style="margin: 0; display: inline;" onsubmit="return confirm('Reset traffic counter for ${hostEscaped}?');">

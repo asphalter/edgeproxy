@@ -594,6 +594,11 @@ def get_active_clients() -> List[Dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
+def get_client_status() -> List[Dict[str, Any]]:
+    """Return all recorded client statuses ordered by last seen timestamp (alias for get_active_clients)."""
+    return get_active_clients()
+
+
 def insert_client_logs(client_name: str, logs: List[Any]):
     """Insert log entries received from client sync agents."""
     if not logs:
@@ -735,32 +740,66 @@ def validate_sync_token(token: str) -> bool:
     return row is not None
 
 
-def get_recent_access_logs(limit: int = 50, filter_host: Optional[str] = None, host: Optional[str] = None) -> List[Dict[str, Any]]:
-    """Retrieve recent HTTP access logs recorded from Caddy."""
+def get_recent_access_logs(
+    host: Optional[str] = None,
+    status: Optional[str] = None,
+    ip: Optional[str] = None,
+    limit: int = 50,
+    filter_host: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    """Retrieve recent HTTP access logs recorded from Caddy with dynamic filtering."""
     target_host = host if host is not None else filter_host
+    if target_host is not None:
+        target_host = target_host.strip()
+        if not target_host or target_host.lower() == "all":
+            target_host = None
+
+    conditions = []
+    params: List[Any] = []
+
+    if target_host:
+        conditions.append("host = ?")
+        params.append(target_host)
+
+    if ip is not None and ip.strip():
+        conditions.append("remote_ip LIKE ?")
+        params.append(f"%{ip.strip()}%")
+
+    if status is not None and str(status).strip():
+        s_val = str(status).strip().lower()
+        if s_val == "2xx":
+            conditions.append("status >= 200 AND status < 300")
+        elif s_val == "3xx":
+            conditions.append("status >= 300 AND status < 400")
+        elif s_val == "4xx":
+            conditions.append("status >= 400 AND status < 500")
+        elif s_val == "5xx":
+            conditions.append("status >= 500 AND status < 600")
+        else:
+            try:
+                code = int(s_val)
+                conditions.append("status = ?")
+                params.append(code)
+            except ValueError:
+                pass
+
+    where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+    query = f"""
+        SELECT id, COALESCE(NULLIF(ts, ''), created_at) as ts, COALESCE(NULLIF(created_at, ''), ts) as created_at,
+               host, method, uri, status, email, remote_ip,
+               COALESCE(bytes, bytes_out) as bytes, COALESCE(bytes_out, bytes) as bytes_out,
+               duration_ms, user_agent, referer
+        FROM access_logs
+        {where_clause}
+        ORDER BY created_at DESC
+        LIMIT ?;
+    """
+    params.append(limit)
+
     conn = get_db_connection()
     cursor = conn.cursor()
-    if target_host:
-        cursor.execute("""
-            SELECT id, COALESCE(NULLIF(ts, ''), created_at) as ts, COALESCE(NULLIF(created_at, ''), ts) as created_at,
-                   host, method, uri, status, email, remote_ip,
-                   COALESCE(bytes, bytes_out) as bytes, COALESCE(bytes_out, bytes) as bytes_out,
-                   duration_ms, user_agent, referer
-            FROM access_logs
-            WHERE host = ?
-            ORDER BY id DESC
-            LIMIT ?;
-        """, (target_host, limit))
-    else:
-        cursor.execute("""
-            SELECT id, COALESCE(NULLIF(ts, ''), created_at) as ts, COALESCE(NULLIF(created_at, ''), ts) as created_at,
-                   host, method, uri, status, email, remote_ip,
-                   COALESCE(bytes, bytes_out) as bytes, COALESCE(bytes_out, bytes) as bytes_out,
-                   duration_ms, user_agent, referer
-            FROM access_logs
-            ORDER BY id DESC
-            LIMIT ?;
-        """, (limit,))
+    cursor.execute(query, tuple(params))
     rows = cursor.fetchall()
     conn.close()
     return [dict(row) for row in rows]
@@ -1029,6 +1068,23 @@ def get_all_host_traffic_stats() -> List[Dict[str, Any]]:
     now_str = now.strftime("%Y-%m-%d %H:%M:%S")
 
     try:
+        # Outbound bytes consumed in the last 24 hours per host
+        cursor.execute("""
+            SELECT host, COALESCE(SUM(bytes_out), 0) as daily_bytes
+            FROM bandwidth_stats
+            WHERE bucket_ts >= datetime('now', '-24 hours')
+            GROUP BY host;
+        """)
+        bw_daily = {row["host"]: row["daily_bytes"] for row in cursor.fetchall()}
+
+        cursor.execute("""
+            SELECT host, COALESCE(SUM(bytes_out), 0) as daily_bytes
+            FROM access_logs
+            WHERE (ts >= datetime('now', '-24 hours') OR created_at >= datetime('now', '-24 hours'))
+            GROUP BY host;
+        """)
+        al_daily = {row["host"]: row["daily_bytes"] for row in cursor.fetchall()}
+
         cursor.execute("""
             SELECT
                 h.domain as host,
@@ -1091,10 +1147,15 @@ def get_all_host_traffic_stats() -> List[Dict[str, Any]]:
             days_remaining = round(remaining_secs / 86400.0, 1)
             days_since = round(elapsed_secs / 86400.0, 1)
 
+            # Daily outbound bytes (last 24 hours)
+            b_today = max(int(bw_daily.get(h, 0)), int(al_daily.get(h, 0)))
+
             results.append({
                 "host": h,
                 "bytes_out": b_out,
                 "formatted_bytes": format_bytes(b_out),
+                "bytes_today": b_today,
+                "bytes_today_formatted": format_bytes(b_today),
                 "requests_count": req_count,
                 "last_reset": lr_str,
                 "updated_at": up_str,

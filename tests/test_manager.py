@@ -165,6 +165,8 @@ class TestEdgeProxyManager(unittest.TestCase):
         self.assertIn("Traffic Statistics & Telemetry", stats_page.text)
         self.assertIn("bandwidthChart", stats_page.text)
         self.assertIn("accessLogsTableBody", stats_page.text)
+        self.assertIn("Tunnel Latency", stats_page.text)
+        self.assertNotIn("Recorded Requests", stats_page.text)
 
         # Test API bandwidth con DB vuoto inizialmente
         bw_res = self.client.get("/api/v1/stats/bandwidth?hours=24")
@@ -875,6 +877,8 @@ class TestEdgeProxyManager(unittest.TestCase):
         self.assertEqual(found["bytes_out"], 1024 * 1024)
         self.assertEqual(found["requests_count"], 1)
         self.assertIn("1.00 MB", found["formatted_bytes"])
+        self.assertIn("bytes_today", found)
+        self.assertIn("bytes_today_formatted", found)
 
         # Second increment
         db.increment_host_traffic(test_host, 2 * 1024 * 1024, 4)
@@ -929,6 +933,142 @@ class TestEdgeProxyManager(unittest.TestCase):
         self.assertEqual(stats_html_res.status_code, 200)
         self.assertIn("Per-Host Outbound Traffic (30-Day Auto-Reset)", stats_html_res.text)
         self.assertIn("/stats/traffic/reset", stats_html_res.text)
+
+    def test_daily_outbound_traffic_stats(self):
+        """Test calculation of daily outbound traffic (bytes_today, bytes_today_formatted) in get_all_host_traffic_stats()."""
+        host1 = "daily-test.example.com"
+        host2 = "older-test.example.com"
+
+        # Inserisci dati recenti (< 24h) in bandwidth_stats
+        conn = db.get_db_connection()
+        conn.execute("""
+            INSERT INTO bandwidth_stats (host, bucket_ts, bytes_out, requests)
+            VALUES (?, datetime('now', '-2 hours'), 5242880, 10);
+        """, (host1,))
+        # Inserisci dati vecchi (> 24h) in bandwidth_stats
+        conn.execute("""
+            INSERT INTO bandwidth_stats (host, bucket_ts, bytes_out, requests)
+            VALUES (?, datetime('now', '-48 hours'), 10485760, 20);
+        """, (host2,))
+        conn.commit()
+        conn.close()
+
+        # Inserisci anche traffico cumulativo
+        db.increment_host_traffic(host1, 5242880, 10)
+        db.increment_host_traffic(host2, 10485760, 20)
+
+        traffic = db.get_all_host_traffic_stats()
+        h1_stat = next((t for t in traffic if t["host"] == host1), None)
+        h2_stat = next((t for t in traffic if t["host"] == host2), None)
+
+        self.assertIsNotNone(h1_stat)
+        self.assertIn("bytes_today", h1_stat)
+        self.assertIn("bytes_today_formatted", h1_stat)
+        self.assertEqual(h1_stat["bytes_today"], 5242880)
+        self.assertIn("5.00 MB", h1_stat["bytes_today_formatted"])
+
+        self.assertIsNotNone(h2_stat)
+        self.assertIn("bytes_today", h2_stat)
+        self.assertIn("bytes_today_formatted", h2_stat)
+        self.assertEqual(h2_stat["bytes_today"], 0)
+        self.assertEqual(h2_stat["bytes_today_formatted"], "0 B")
+
+        # Verifica API /api/v1/stats/traffic
+        api_res = self.client.get("/api/v1/stats/traffic")
+        self.assertEqual(api_res.status_code, 200)
+        api_data = api_res.json()
+        item = next((t for t in api_data["traffic"] if t["host"] == host1), None)
+        self.assertIsNotNone(item)
+        self.assertEqual(item["bytes_today"], 5242880)
+        self.assertIn("5.00 MB", item["bytes_today_formatted"])
+
+        # Verifica stats.html contiene colonna Daily Outbound (24h) e badge-neutral per reset sobrio
+        html_res = self.client.get("/stats")
+        self.assertEqual(html_res.status_code, 200)
+        self.assertIn("Daily Outbound (24h)", html_res.text)
+        self.assertIn("badge-neutral", html_res.text)
+
+    def test_32_access_logs_filtering(self):
+        """Verify advanced access logs filtering by HTTP status, client IP, and host."""
+        # Prepara log di test diversificati
+        test_host1 = "filter-a.test.internal"
+        test_host2 = "filter-b.test.internal"
+        sample_logs = [
+            {"ts": "2026-10-28 10:00:00", "created_at": "2026-10-28 10:00:00", "host": test_host1, "method": "GET", "uri": "/api/test200", "status": 200, "remote_ip": "192.168.1.50", "bytes": 100, "duration_ms": 1.2},
+            {"ts": "2026-10-28 10:01:00", "created_at": "2026-10-28 10:01:00", "host": test_host1, "method": "GET", "uri": "/api/test302", "status": 302, "remote_ip": "192.168.1.51", "bytes": 120, "duration_ms": 2.1},
+            {"ts": "2026-10-28 10:02:00", "created_at": "2026-10-28 10:02:00", "host": test_host1, "method": "GET", "uri": "/api/test401", "status": 401, "remote_ip": "192.168.1.52", "bytes": 150, "duration_ms": 3.0},
+            {"ts": "2026-10-28 10:03:00", "created_at": "2026-10-28 10:03:00", "host": test_host1, "method": "GET", "uri": "/api/test403", "status": 403, "remote_ip": "93.38.118.10", "bytes": 200, "duration_ms": 1.5},
+            {"ts": "2026-10-28 10:04:00", "created_at": "2026-10-28 10:04:00", "host": test_host1, "method": "GET", "uri": "/api/test404", "status": 404, "remote_ip": "93.38.118.20", "bytes": 220, "duration_ms": 2.2},
+            {"ts": "2026-10-28 10:05:00", "created_at": "2026-10-28 10:05:00", "host": test_host1, "method": "POST", "uri": "/api/test502", "status": 502, "remote_ip": "10.0.0.99", "bytes": 300, "duration_ms": 45.0},
+            {"ts": "2026-10-28 10:06:00", "created_at": "2026-10-28 10:06:00", "host": test_host2, "method": "GET", "uri": "/b/test401", "status": 401, "remote_ip": "192.168.1.99", "bytes": 140, "duration_ms": 1.1},
+            {"ts": "2026-10-28 10:07:00", "created_at": "2026-10-28 10:07:00", "host": test_host2, "method": "GET", "uri": "/b/test200", "status": 200, "remote_ip": "10.0.0.50", "bytes": 110, "duration_ms": 0.9},
+        ]
+        db.insert_access_logs_batch(sample_logs)
+
+        # 1. Test livello DB: filtro codice numerico esatto (401)
+        res_401 = db.get_recent_access_logs(status="401", limit=20)
+        self.assertTrue(all(r["status"] == 401 for r in res_401))
+        self.assertGreaterEqual(len(res_401), 2)
+
+        # 2. Test livello DB: filtro classe 4xx
+        res_4xx = db.get_recent_access_logs(status="4xx", limit=20)
+        self.assertTrue(all(400 <= r["status"] < 500 for r in res_4xx))
+        statuses_found = {r["status"] for r in res_4xx if r["host"] in (test_host1, test_host2)}
+        self.assertIn(401, statuses_found)
+        self.assertIn(403, statuses_found)
+        self.assertIn(404, statuses_found)
+        self.assertNotIn(200, statuses_found)
+        self.assertNotIn(502, statuses_found)
+
+        # 3. Test livello DB: filtro IP LIKE (subnet '93.38.')
+        res_ip = db.get_recent_access_logs(ip="93.38.", limit=20)
+        self.assertTrue(all("93.38." in r["remote_ip"] for r in res_ip))
+        self.assertGreaterEqual(len(res_ip), 2)
+
+        # 4. Test livello DB: filtro Host specifico
+        res_host1 = db.get_recent_access_logs(host=test_host1, limit=50)
+        self.assertTrue(all(r["host"] == test_host1 for r in res_host1))
+        self.assertEqual(len(res_host1), 6)
+
+        # 5. Test livello DB: filtri combinati (host1 + 4xx + subnet 192.168.)
+        res_combined = db.get_recent_access_logs(host=test_host1, status="4xx", ip="192.168.", limit=20)
+        self.assertEqual(len(res_combined), 1)
+        self.assertEqual(res_combined[0]["status"], 401)
+        self.assertEqual(res_combined[0]["remote_ip"], "192.168.1.52")
+
+        # 6. Test livello API: GET /api/v1/stats/access con status=4xx
+        api_4xx = self.client.get("/api/v1/stats/access?status=4xx&limit=50")
+        self.assertEqual(api_4xx.status_code, 200)
+        data_4xx = api_4xx.json()
+        self.assertEqual(data_4xx["status"], "ok")
+        self.assertTrue(all(400 <= l["status"] < 500 for l in data_4xx["logs"]))
+
+        # 7. Test livello API: GET /api/v1/stats/access con status=401 e host
+        api_401 = self.client.get(f"/api/v1/stats/access?host={test_host2}&status=401")
+        self.assertEqual(api_401.status_code, 200)
+        data_401 = api_401.json()
+        self.assertEqual(len(data_401["logs"]), 1)
+        self.assertEqual(data_401["logs"][0]["host"], test_host2)
+        self.assertEqual(data_401["logs"][0]["status"], 401)
+
+        # 8. Test livello API: GET /api/v1/stats/access con filtro IP
+        api_ip = self.client.get("/api/v1/stats/access?ip=93.38.118.&limit=50")
+        self.assertEqual(api_ip.status_code, 200)
+        data_ip = api_ip.json()
+        self.assertGreaterEqual(len(data_ip["logs"]), 2)
+        self.assertTrue(all("93.38.118." in l["remote_ip"] for l in data_ip["logs"]))
+
+        # 9. Test endpoint view /stats con filtri preimpostati e componenti UI
+        view_res = self.client.get(f"/stats?host={test_host1}&status=4xx&ip=192.168.")
+        self.assertEqual(view_res.status_code, 200)
+        self.assertIn("Select Host", view_res.text)
+        self.assertIn("Select Status / Outcome", view_res.text)
+        self.assertIn("Filter by Client IP", view_res.text)
+        self.assertIn("loadAccessLogs", view_res.text)
+        self.assertIn("resetAccessFilters", view_res.text)
+        # Verifica che il log prefiltrato sia renderizzato
+        self.assertIn(test_host1, view_res.text)
+        self.assertIn("192.168.1.52", view_res.text)
 
 
 if __name__ == "__main__":
