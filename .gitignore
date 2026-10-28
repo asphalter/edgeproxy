@@ -2,18 +2,16 @@
 *.sqlite3
 edgeproxy.db
 server/manager/edgeproxy.db
-
-memory-bank/
+# Internal planning and AI context
 plans/
+memory-bank/
 .venv/
 server/manager/.venv/
 __pycache__/
 *.pyc
 .pytest_cache/
-
 *.tmp
 *.log
 *.swp
-
 .env
 .env.local
