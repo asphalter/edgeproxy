@@ -46,37 +46,27 @@
 
 ## Architecture Overview
 
-```mermaid
-flowchart LR
-    subgraph Internet["Public Internet"]
-        User["User Browser / API Client"]
-    end
+### Componenti Architetturali
 
-    subgraph VPS["Your VPS Edge Gateway (:80, :443, :2333)"]
-        direction TB
-        Caddy["Caddy v2 (HTTP/3 + ACME TLS)"]
-        OAuth2["OAuth2-Proxy (Google SSO)"]
-        Manager["EdgeProxy Manager UI (:8000)"]
-        RatholeServer["Rathole Server (:2333)"]
-        
-        Caddy -->|":4180 /oauth2"| OAuth2
-        Caddy -->|":8000"| Manager
-        Caddy -->|"127.0.0.1:8001+"| RatholeServer
-    end
+| Componente | Ambito / Ubicazione | Porte / Endpoint | Ruolo e Funzione |
+|---|---|---|---|
+| **User / Client** | Rete Pubblica / Internet | `:443` HTTPS / HTTP/3 QUIC | Browser utente o client API esterno che richiede l'accesso a un servizio esposto |
+| **Caddy v2 Edge** | VPS Edge Gateway | `:80`, `:443`, `:2019` | Reverse proxy primario, terminazione TLS/ACME automatica, applicazione policy di sicurezza e instradamento |
+| **OAuth2-Proxy** | VPS Edge Gateway | `127.0.0.1:4180` | Endpoint locale `/oauth2` per autenticazione Single Sign-On Google ed enforcement email whitelist |
+| **EdgeProxy Manager** | VPS Edge Gateway | `127.0.0.1:8000` | UI di controllo FastAPI per gestione host, monitoraggio link, metriche e distribuzione configurazioni |
+| **Rathole Server** | VPS Edge Gateway | `0.0.0.0:2333` (WAN)<br>`127.0.0.1:8001+` (LAN) | Ricezione tunnel crittografato Noise e bridging delle porte locali verso Caddy |
+| **Rathole Client & Sync Agent** | LAN Privata / Homelab | Outbound verso `:2333` | Connessione solo in uscita verso il VPS, polling configurazioni ed inoltro ai servizi interni |
+| **Backend Services** | LAN Privata / Homelab | Porte interne (es. `:8080`, `:9443`) | Applicazioni target protette (Proxmox, Home Assistant, NAS, web app private) |
 
-    subgraph LAN["Private LAN / Homelab Backend"]
-        direction TB
-        RatholeClient["Rathole Client + Sync Agent"]
-        BackendApp1["Service 1 (e.g. 192.168.1.10:8080)"]
-        BackendApp2["Service 2 (e.g. 10.88.0.50:9443)"]
-        
-        RatholeClient --> BackendApp1
-        RatholeClient --> BackendApp2
-    end
+### Flusso di Traffico End-to-End
 
-    User -->|"HTTPS / QUIC"| Caddy
-    RatholeClient ==="Noise Tunnel (WAN :2333 / Outbound only)"===> RatholeServer
-```
+| Step | Origine | Destinazione | Canale / Protocollo | Descrizione |
+|:---:|---|---|---|---|
+| **1** | Client / Browser | Caddy Edge (VPS) | `HTTPS` / `HTTP/3 QUIC` (`:443`) | La richiesta in ingresso arriva al VPS con certificato ACME valido. |
+| **2** | Caddy Edge | OAuth2-Proxy / Manager | `HTTP` (`127.0.0.1:4180` / `:8000`) | Caddy valida l'autenticazione richiesta (`Bypass`, `Google OAuth2`, o `Service Token`). |
+| **3** | Caddy Edge | Rathole Server | Loopback TCP (`127.0.0.1:8001+`) | A richiesta autorizzata, Caddy inoltra il traffico alla porta locale assegnata all'host. |
+| **4** | Rathole Server | Rathole Client | Noise Tunnel WAN (`:2333`) | Multiplexing crittografato ad alte prestazioni su connessione stabilita in uscita dal client. |
+| **5** | Rathole Client | Servizio Backend LAN | LAN TCP/HTTP (`192.168.x.x`, ecc.) | Il client consegna il payload al server o container locale senza esporre porte sul router. |
 
 ### Process Coordination Inside `edgeproxy-server`
 The all-in-one server container uses `supervisord` to coordinate four local processes over loopback:
