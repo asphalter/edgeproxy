@@ -6,7 +6,7 @@
     <title>{{ page_title }} — EDGEPROXY // CONTROL PLANE</title>
     <style>
         :root {
-            /* Palette Tecnica Dark / Obsidian / High-Contrast Terminal */
+            /* Technical Dark / Obsidian / High-Contrast Terminal Palette */
             --bg-canvas: #090a0f;
             --bg-sidebar: #0d0f17;
             --bg-panel: #121520;
@@ -50,7 +50,7 @@
             overflow-x: hidden;
         }
 
-        /* Sidebar Laterale Sinistra */
+        /* Left Sidebar */
         .sidebar {
             width: 250px;
             background-color: var(--bg-sidebar);
@@ -166,7 +166,7 @@
             background: rgba(0, 0, 0, 0.2);
         }
 
-        /* Layout Principale (Destra) */
+        /* Main Layout (Right) */
         .main-wrapper {
             margin-left: 250px;
             flex: 1;
@@ -288,7 +288,7 @@
             align-items: center;
         }
 
-        /* Pulsanti */
+        /* Buttons */
         .btn {
             display: inline-flex;
             align-items: center;
@@ -342,7 +342,7 @@
             font-size: 0.75rem;
         }
 
-        /* Form Controlli */
+        /* Form Controls */
         .form-group {
             margin-bottom: 1rem;
         }
@@ -382,7 +382,7 @@
             margin-top: 0.35rem;
         }
 
-        /* Tabelle Tecniche */
+        /* Technical Tables */
         table {
             width: 100%;
             border-collapse: collapse;
@@ -603,7 +603,7 @@
         </ul>
 
         <div class="sidebar-footer">
-            <div>HOST: {{ settings.get('root_domain', 'edge.mpv.cx') }}</div>
+            <div>HOST: {{ settings.get('root_domain', 'example.com') }}</div>
             <div style="color: var(--text-muted); margin-top: 0.2rem;">PORT: 8000 // QUADLET</div>
         </div>
     </aside>

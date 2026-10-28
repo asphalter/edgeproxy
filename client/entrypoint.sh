@@ -12,7 +12,7 @@ if [[ $# -gt 0 ]]; then
 fi
 
 # Environment variable configurations with defaults
-SERVER_URL="${SERVER_URL:-https://auth.edge.mpv.cx}"
+SERVER_URL="${SERVER_URL:-https://auth.example.com}"
 SYNC_TOKEN="${SYNC_TOKEN:-}"
 INTERVAL="${INTERVAL:-15}"
 CONFIG_PATH="${CONFIG_PATH:-/etc/rathole/client.toml}"

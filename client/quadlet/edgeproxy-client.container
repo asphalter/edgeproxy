@@ -8,7 +8,7 @@ ContainerName=edgeproxy-client
 Image=ghcr.io/vvelectron/edgeproxy-client:latest
 Network=host
 Volume=edgeproxy_client_data.volume:/etc/rathole:z
-Environment=SERVER_URL=https://auth.edge.mpv.cx
+Environment=SERVER_URL=https://auth.example.com
 Environment=SYNC_TOKEN=your_client_sync_token_here
 Environment=INTERVAL=15
 

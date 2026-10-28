@@ -16,24 +16,24 @@ TARGET="${1:-all}"
 
 build_server() {
     echo "=================================================="
-    echo "Compilazione Immagine Server: ${TAG_SERVER}"
+    echo "Building Server Image: ${TAG_SERVER}"
     echo "=================================================="
     podman build \
         -t "${TAG_SERVER}" \
         -f "${ROOT_DIR}/server/Containerfile" \
         "${ROOT_DIR}/server"
-    echo "Compilazione completata con successo: ${TAG_SERVER}"
+    echo "Build completed successfully: ${TAG_SERVER}"
 }
 
 build_client() {
     echo "=================================================="
-    echo "Compilazione Immagine Client: ${TAG_CLIENT}"
+    echo "Building Client Image: ${TAG_CLIENT}"
     echo "=================================================="
     podman build \
         -t "${TAG_CLIENT}" \
         -f "${ROOT_DIR}/client/Containerfile" \
         "${ROOT_DIR}/client"
-    echo "Compilazione completata con successo: ${TAG_CLIENT}"
+    echo "Build completed successfully: ${TAG_CLIENT}"
 }
 
 case "${TARGET}" in
@@ -48,10 +48,10 @@ case "${TARGET}" in
         build_client
         ;;
     *)
-        echo "Uso: $0 [server|client|all]"
+        echo "Usage: $0 [server|client|all]"
         exit 1
         ;;
 esac
 
 echo ""
-echo "Tutte le immagini richieste sono state compilate con successo."
+echo "All requested images were successfully built."

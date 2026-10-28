@@ -1,21 +1,19 @@
-# Database SQLite
 *.db
 *.sqlite3
 edgeproxy.db
 server/manager/edgeproxy.db
 
-# Ambienti virtuali Python e cache
+memory-bank/
+plans/
 .venv/
 server/manager/.venv/
 __pycache__/
 *.pyc
 .pytest_cache/
 
-# File temporanei e log
 *.tmp
 *.log
 *.swp
 
-# Variabili d'ambiente e segreti
 .env
 .env.local

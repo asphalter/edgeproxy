@@ -31,10 +31,19 @@
     - [x] **Stealth Black-boxing**: rimozione della risposta 200 "EdgeProxy Gateway" dall'apex domain (`edge.mpv.cx`) sostituita con `401 Unauthorized` e chiusura connessione TCP (`close`).
     - [x] **Catch-all 401 per IP e SNI sconosciuti**: risposte di default forzate a `401 Unauthorized` per connessioni dirette a `:80` e `:443` con hostname o IP non configurati.
     - [x] **Server Header Uniforme**: impostazione tassativa dell'header `Server: EdgeProxy` su tutte le risposte Caddyfile, Manager UI, Auth e vhost proxati.
-    - [x] **Client Probing RTT Latenza**: misurazione rapida con curl e invio di `latency_ms` nel payload a `/api/v1/client/report` in [`client/entrypoint.sh`](client/entrypoint.sh).
+    - [x] **Client Probing RTT Latenza**: misurazione pura del 3-way handshake RTT TCP escludendo il tempo DNS (`(%{time_connect} - %{time_namelookup}) * 1000`) e invio di `latency_ms` nel payload a `/api/v1/client/report` in [`client/entrypoint.sh`](client/entrypoint.sh).
     - [x] **Backend & Data Aging**: endpoint leggero `GET /api/v1/client/ping`, tabella SQLite `client_latency_stats`, colonna `latency_ms` con migrazione automatica, svecchiamento automatico dei dati in [`db.purge_old_access_logs()`](server/manager/db.py:790), e API `GET /api/v1/stats/latency?hours=24`.
     - [x] **Web UI Dashboard, Links & Stats**: stat card "Tunnel Latency" con badge colorato per soglia ms in [`dashboard.html`](server/manager/templates/dashboard.html), telemetria latenza in tempo reale in [`links.html`](server/manager/templates/links.html), e grafico Chart.js dedicato all'andamento RTT in [`stats.html`](server/manager/templates/stats.html).
     - [x] **Validazione e Test Suite Completa**: validazione Caddyfile con `caddy validate` ed esecuzione completa della test suite unitaria [`tests/test_manager.py`](tests/test_manager.py) in container Podman effimero (20/20 test superati con successo).
+  - [x] **Scrubbing Hardcoded, Traduzione Integrale in Inglese e Riscrizione README (Ottobre 2026)**:
+    - [x] Rimosso ogni riferimento a `matteo.piva@gmail.com` e `mpv.cx` / `edge.mpv.cx` da tutti i file di configurazione, Quadlet, Caddyfile, OAuth2-Proxy, seed di database, template e script.
+    - [x] Tradotti integralmente in inglese moduli Python, template HTML, script shell, e test suite.
+    - [x] Eliminato `INSTALL.md`.
+    - [x] Riscritto [`README.md`](README.md) in lingua inglese per GitHub con architettura, feature list, guida Quadlet nativa e troubleshooting.
+    - [x] Verificata con successo la validazione Caddy e superati 20/20 test unitari in container Podman effimeri.
+  - [x] **Brand Identity e Asset Grafici (Ottobre 2026)**:
+    - [x] Creato il logo cyberpunk neon ad alta risoluzione [`docs/assets/logo.png`](docs/assets/logo.png) con tracce di circuito stile "EP", bagliori ciano/viola e sottotitolo.
+    - [x] Inserito il logo centrato ad alta risoluzione in testa a [`README.md`](README.md).
 
   ## Da Fare / Prossimi Passi
 

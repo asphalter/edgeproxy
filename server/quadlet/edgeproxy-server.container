@@ -12,8 +12,8 @@ PublishPort=443:443/udp
 PublishPort=2333:2333/tcp
 PublishPort=8000:8000/tcp
 Volume=edgeproxy_data.volume:/data:z
-Environment=DOMAIN=edge.mpv.cx
-Environment=ACME_EMAIL=matteo.piva@gmail.com
+Environment=DOMAIN=example.com
+Environment=ACME_EMAIL=admin@example.com
 
 [Service]
 Restart=always

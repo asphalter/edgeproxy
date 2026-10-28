@@ -11,8 +11,8 @@ if [[ $# -gt 0 ]]; then
   exec "$@"
 fi
 
-DOMAIN="${DOMAIN:-edge.mpv.cx}"
-ACME_EMAIL="${ACME_EMAIL:-matteo.piva@gmail.com}"
+DOMAIN="${DOMAIN:-example.com}"
+ACME_EMAIL="${ACME_EMAIL:-admin@example.com}"
 export DOMAIN
 export ACME_EMAIL
 export EDGEPROXY_DB_PATH="${EDGEPROXY_DB_PATH:-/data/edgeproxy.db}"
@@ -38,15 +38,15 @@ if [ ! -f /data/oauth2-proxy/oauth2-proxy.cfg ]; then
     echo "[edgeproxy-server] Seeding default oauth2-proxy.cfg into /data/oauth2-proxy/oauth2-proxy.cfg..."
     cp /defaults/oauth2-proxy/oauth2-proxy.cfg /data/oauth2-proxy/oauth2-proxy.cfg
     # Update cookie_domains and redirect_url if DOMAIN is custom
-    if [ "$DOMAIN" != "edge.mpv.cx" ]; then
-        sed -i "s/edge\.mpv\.cx/${DOMAIN}/g" /data/oauth2-proxy/oauth2-proxy.cfg
+    if [ "$DOMAIN" != "example.com" ]; then
+        sed -i "s/example\.com/${DOMAIN}/g" /data/oauth2-proxy/oauth2-proxy.cfg
     fi
 fi
 
 if [ ! -f /data/oauth2-proxy/authenticated_emails.txt ]; then
     echo "[edgeproxy-server] Seeding default authenticated_emails.txt into /data/oauth2-proxy/..."
     cp /defaults/oauth2-proxy/authenticated_emails.txt /data/oauth2-proxy/authenticated_emails.txt
-    if [ "$ACME_EMAIL" != "matteo.piva@gmail.com" ]; then
+    if [ "$ACME_EMAIL" != "admin@example.com" ]; then
         echo "$ACME_EMAIL" >> /data/oauth2-proxy/authenticated_emails.txt
     fi
 fi

@@ -57,7 +57,7 @@
 
         <div class="form-group">
             <label for="google_allowed_emails">Globally Allowed Google Emails</label>
-            <input type="text" id="google_allowed_emails" name="google_allowed_emails" class="form-control" value="{{ settings.get('google_allowed_emails', 'matteo.piva@gmail.com') }}" placeholder="matteo.piva@gmail.com, user@example.com">
+            <input type="text" id="google_allowed_emails" name="google_allowed_emails" class="form-control" value="{{ settings.get('google_allowed_emails', 'admin@example.com') }}" placeholder="admin@example.com, user@example.com">
             <div class="form-hint">Default email whitelist for all hosts that do not specify dedicated emails. Comma-separated list.</div>
         </div>
 
@@ -71,7 +71,7 @@
                 <div>
                     <div style="font-size: 0.72rem; color: var(--text-muted); font-family: var(--font-mono); margin-bottom: 0.2rem;">AUTHORIZED REDIRECT URI:</div>
                     <div style="display: flex; gap: 0.5rem; align-items: center;">
-                        <input type="text" id="uri_redirect" readonly class="form-control" style="background: #0d111d; color: #38bdf8; font-size: 0.8rem;" value="https://auth.{{ settings.get('root_domain', 'edge.mpv.cx') }}/oauth2/callback">
+                        <input type="text" id="uri_redirect" readonly class="form-control" style="background: #0d111d; color: #38bdf8; font-size: 0.8rem;" value="https://auth.{{ settings.get('root_domain', 'example.com') }}/oauth2/callback">
                         <button type="button" class="btn btn-secondary btn-sm" onclick="copyToClipboard('uri_redirect', this)">Copy</button>
                     </div>
                 </div>
@@ -79,7 +79,7 @@
                 <div>
                     <div style="font-size: 0.72rem; color: var(--text-muted); font-family: var(--font-mono); margin-bottom: 0.2rem;">AUTHORIZED JAVASCRIPT ORIGINS:</div>
                     <div style="display: flex; gap: 0.5rem; align-items: center;">
-                        <input type="text" id="uri_origin" readonly class="form-control" style="background: #0d111d; color: #38bdf8; font-size: 0.8rem;" value="https://auth.{{ settings.get('root_domain', 'edge.mpv.cx') }}">
+                        <input type="text" id="uri_origin" readonly class="form-control" style="background: #0d111d; color: #38bdf8; font-size: 0.8rem;" value="https://auth.{{ settings.get('root_domain', 'example.com') }}">
                         <button type="button" class="btn btn-secondary btn-sm" onclick="copyToClipboard('uri_origin', this)">Copy</button>
                     </div>
                 </div>

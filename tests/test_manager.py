@@ -4,13 +4,13 @@ import json
 import unittest
 import tempfile
 
-# Configura DB path temporaneo PRIMA di importare il manager
+# Configure temporary DB path BEFORE importing the manager
 temp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
 temp_db_path = temp_db.name
 temp_db.close()
 os.environ["EDGEPROXY_DB_PATH"] = temp_db_path
 
-# Aggiungi cartella server/manager al sys.path
+# Add server/manager directory to sys.path
 MANAGER_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../server/manager"))
 if MANAGER_DIR not in sys.path:
     sys.path.insert(0, MANAGER_DIR)
@@ -24,7 +24,7 @@ from fastapi.testclient import TestClient
 class TestEdgeProxyManager(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        # Salva copia di backup dei file target prima dei test
+        # Save backup copies of target files before tests
         cls.saved_files = {}
         for target_list in config_engine.get_target_paths().values():
             for p in target_list:
@@ -35,13 +35,13 @@ class TestEdgeProxyManager(unittest.TestCase):
                     except Exception:
                         pass
 
-        # Inizializza il database SQLite pulito con seed predefiniti
+        # Initialize clean SQLite database with default seeds
         db.init_db()
         cls.client = TestClient(app)
 
     @classmethod
     def tearDownClass(cls):
-        # Ripristina i file target originali
+        # Restore original target files
         for p, content in getattr(cls, "saved_files", {}).items():
             try:
                 with open(p, "w", encoding="utf-8") as f:
@@ -55,7 +55,7 @@ class TestEdgeProxyManager(unittest.TestCase):
                 pass
 
     def test_01_dashboard_view(self):
-        """Verifica GET /: status 200 e presenza degli elementi della dashboard HTML."""
+        """Verify GET /: returns status 200 and HTML dashboard elements."""
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
         content = response.text
@@ -64,7 +64,7 @@ class TestEdgeProxyManager(unittest.TestCase):
         self.assertIn("Active Host Tunnels", content)
 
     def test_02_add_host_and_port_assignment(self):
-        """Verifica POST /hosts/add: aggiunta host demo.mycompany.org, assegnazione porta 8001 e token."""
+        """Verify POST /hosts/add: adds host demo.mycompany.org, assigns port 8001 and secure token."""
         form_data = {
             "domain": "demo.mycompany.org",
             "upstream": "https://10.88.0.100:9443",
@@ -76,36 +76,36 @@ class TestEdgeProxyManager(unittest.TestCase):
         self.assertEqual(response.status_code, 303)
         self.assertIn("/hosts", response.headers.get("location", ""))
 
-        # Verifica nel database
+        # Verify in database
         hosts = db.get_all_hosts()
         demo = next((h for h in hosts if h["domain"] == "demo.mycompany.org"), None)
-        self.assertIsNotNone(demo, "Host demo.mycompany.org non trovato nel database")
-        self.assertEqual(demo["rathole_port"], 8001, f"Porta attesa 8001, trovata {demo['rathole_port']}")
+        self.assertIsNotNone(demo, "Host demo.mycompany.org not found in database")
+        self.assertEqual(demo["rathole_port"], 8001, f"Expected port 8001, found {demo['rathole_port']}")
         self.assertEqual(demo["upstream"], "https://10.88.0.100:9443")
         self.assertEqual(demo["tls_insecure_skip_verify"], 1)
         self.assertEqual(demo["policy"], "google_oauth")
         self.assertEqual(demo["security_headers"], 1)
-        self.assertTrue(len(demo["rathole_token"]) >= 32, "Il token Rathole generato non è sicuro o valido")
+        self.assertTrue(len(demo["rathole_token"]) >= 32, "Generated Rathole token is not valid or secure")
 
     def test_03_client_config_view(self):
-        """Verifica GET /client-config: generazione client.toml con [client.services.demo] e target."""
+        """Verify GET /client-config: generates client.toml with [client.services.demo] and target."""
         response = self.client.get("/client-config")
         self.assertEqual(response.status_code, 200)
         content = response.text
 
-        # Verifica sezioni del file TOML renderizzate
+        # Verify rendered TOML file sections
         self.assertIn("[client.services.demo]", content)
         self.assertIn('local_addr = "10.88.0.100:9443"', content)
         self.assertIn("[client]", content)
 
-        # Verifica anche download diretto
+        # Verify direct download
         dl_response = self.client.get("/client-config/download")
         self.assertEqual(dl_response.status_code, 200)
         self.assertIn("[client.services.demo]", dl_response.text)
         self.assertIn('local_addr = "10.88.0.100:9443"', dl_response.text)
 
     def test_04_apply_configurations(self):
-        """Verifica POST /apply: generazione e validità sintattica dei file Caddyfile, Rathole e OAuth2-Proxy."""
+        """Verify POST /apply: generation and syntax validity of Caddyfile, Rathole and OAuth2-Proxy configs."""
         response = self.client.post("/apply", follow_redirects=False)
         self.assertEqual(response.status_code, 303)
 
@@ -118,8 +118,8 @@ class TestEdgeProxyManager(unittest.TestCase):
         client_toml = config_engine.generate_rathole_client_toml(hosts, settings)
         oauth2_cfg = config_engine.generate_oauth2_proxy_cfg(settings)
 
-        # Asserzioni su Caddyfile
-        self.assertIn("{$DOMAIN:edge.mpv.cx} {", caddy_content)
+        # Assertions on Caddyfile
+        self.assertIn("{$DOMAIN:example.com} {", caddy_content)
         self.assertIn('respond "Unauthorized" 401', caddy_content)
         self.assertNotIn("reverse_proxy 127.0.0.1:8000", caddy_content)
         self.assertIn(":80 {", caddy_content)
@@ -158,7 +158,7 @@ class TestEdgeProxyManager(unittest.TestCase):
         self.assertIn('client_id = "123456789-test.apps.googleusercontent.com"', oauth2_cfg_valid)
 
     def test_05_stats_routes(self):
-        """Verifica che la pagina /stats e le API /api/v1/stats rispondano correttamente."""
+        """Verify that /stats page and /api/v1/stats endpoints respond correctly."""
         # Test pagina HTML /stats
         stats_page = self.client.get("/stats")
         self.assertEqual(stats_page.status_code, 200)
@@ -181,7 +181,7 @@ class TestEdgeProxyManager(unittest.TestCase):
         self.assertIsInstance(acc_json["logs"], list)
 
     def test_06_stats_ingester_and_jsonl_parsing(self):
-        """Verifica l'ingestione di access log JSON Caddy in background e la corretta aggregazione."""
+        """Verify Caddy JSON access log background ingestion and correct metrics aggregation."""
         import json
         import stats
 
@@ -265,7 +265,7 @@ class TestEdgeProxyManager(unittest.TestCase):
                 os.remove(log_temp.name)
 
     def test_07_service_token_policy(self):
-        """Verifica la creazione di un host con policy service_token e blocco Caddyfile associato."""
+        """Verify creating host with service_token policy and associated Caddyfile rules."""
         form_data = {
             "domain": "api-service.mycompany.org",
             "upstream": "http://10.88.0.101:8080",
@@ -290,7 +290,7 @@ class TestEdgeProxyManager(unittest.TestCase):
         self.assertNotIn("import google_auth", caddy.split("api-service.mycompany.org {")[1].split("}")[0])
 
     def test_08_disconnect_and_connect_link(self):
-        """Verifica le rotte /disconnect e /connect e la rimozione del servizio da client.toml."""
+        """Verify /disconnect and /connect routes and dynamic service removal in client.toml."""
         hosts = db.get_all_hosts()
         svc_host = next((h for h in hosts if h["domain"] == "api-service.mycompany.org"), None)
         self.assertIsNotNone(svc_host)
@@ -322,7 +322,7 @@ class TestEdgeProxyManager(unittest.TestCase):
         self.assertIn("[client.services.api_service]", client_toml_after)
 
     def test_09_client_report_and_links_view(self):
-        """Verifica POST /api/v1/client/report, GET /api/v1/links/status e GET /links."""
+        """Verify POST /api/v1/client/report, GET /api/v1/links/status and GET /links."""
         sync_token = db.get_or_create_default_sync_token()
 
         report_payload = {
@@ -367,10 +367,10 @@ class TestEdgeProxyManager(unittest.TestCase):
         self.assertIn("Control channel established", links_page.text)
 
     def test_10_websocket_timeouts(self):
-        """Verifica configurazione timeout WebSocket in add_host, update_host e generazione Caddyfile."""
-        # Registra host con timeout websocket dedicati
+        """Verify WebSocket timeout configuration in add_host, update_host and Caddyfile generation."""
+        # Register host with custom websocket timeouts
         res = self.client.post("/hosts/add", data={
-            "domain": "test-ws.mpv.cx",
+            "domain": "test-ws.example.com",
             "upstream": "http://10.88.0.28:8000",
             "policy": "bypass",
             "security_headers": "1",
@@ -383,7 +383,7 @@ class TestEdgeProxyManager(unittest.TestCase):
         }, follow_redirects=False)
         self.assertEqual(res.status_code, 303)
 
-        matched = [h for h in db.get_all_hosts() if h["domain"] == "test-ws.mpv.cx"]
+        matched = [h for h in db.get_all_hosts() if h["domain"] == "test-ws.example.com"]
         self.assertTrue(len(matched) > 0)
         host = matched[0]
         self.assertEqual(host["ws_read_timeout"], 0)
@@ -393,9 +393,9 @@ class TestEdgeProxyManager(unittest.TestCase):
         self.assertEqual(host["ws_dial_timeout"], 15)
         self.assertEqual(host["ws_response_header_timeout"], 45)
 
-        # Modifica i timeout tramite update_host
+        # Modify timeouts via update_host
         edit_res = self.client.post(f"/hosts/{host['id']}/edit", data={
-            "domain": "test-ws.mpv.cx",
+            "domain": "test-ws.example.com",
             "upstream": "http://10.88.0.28:8000",
             "policy": "bypass",
             "security_headers": "1",
@@ -420,7 +420,7 @@ class TestEdgeProxyManager(unittest.TestCase):
         self.assertIn("response_header_timeout 30s", caddyfile)
 
     def test_09_google_oauth_protection_and_ui_alert(self):
-        """Verifica la protezione di generazione cfg e la presenza dell'avviso nella Web UI."""
+        """Verify oauth2 cfg generation safeguards and warning banners displayed in Web UI."""
         # 1. Helper is_google_oauth_configured
         self.assertFalse(config_engine.is_google_oauth_configured({}))
         self.assertFalse(config_engine.is_google_oauth_configured({"google_oauth_enabled": "0"}))
@@ -458,7 +458,7 @@ class TestEdgeProxyManager(unittest.TestCase):
         self.assertIn("Google OAuth2 is not configured", settings_res.text)
 
     def test_12_input_validation_and_sanitization(self):
-        """Verifica la validazione rigorosa dei parametri domain, upstream e allowed_emails."""
+        """Verify strict validation and sanitization for domain, upstream and allowed_emails fields."""
         # 1. Tentativo di Caddyfile / TOML Injection su domain con graffe o newline
         bad_domain_form = {
             "domain": "evil.org {\n\treverse_proxy 1.2.3.4\n}",
@@ -496,7 +496,7 @@ class TestEdgeProxyManager(unittest.TestCase):
         self.assertIn("Invalid email", res_em.json()["detail"])
 
     def test_13_csrf_origin_middleware(self):
-        """Verifica che richieste POST da origini non autorizzate ricevano HTTP 403 Forbidden."""
+        """Verify that state-changing POST requests from unauthorized origins/referers receive HTTP 403 Forbidden."""
         form_data = {
             "domain": "csrf-test.example.com",
             "upstream": "10.88.0.1:8080",
@@ -529,7 +529,7 @@ class TestEdgeProxyManager(unittest.TestCase):
         self.assertIn(res_valid.status_code, (200, 303))
 
     def test_14_backup_export_and_import(self):
-        """Verifica esportazione e ripristino atomico della configurazione via JSON."""
+        """Verify atomic configuration export and restore via JSON."""
         # 1. Export backup
         res_export = self.client.get("/backup/export")
         self.assertEqual(res_export.status_code, 200)
@@ -568,7 +568,7 @@ class TestEdgeProxyManager(unittest.TestCase):
         self.assertEqual(restored_host["upstream"], "10.88.0.50:9000")
 
     def test_15_noise_transport_and_caddy_log_rotation(self):
-        """Verifica generazione di Rathole con Noise_NN_25519_ChaChaPoly_BLAKE2s e rotazione log Caddy 20mb/5/14d."""
+        """Verify Rathole Noise_NN_25519_ChaChaPoly_BLAKE2s transport generation and Caddy log rotation rules."""
         hosts = db.get_all_hosts()
         settings = db.get_settings()
 
@@ -591,7 +591,7 @@ class TestEdgeProxyManager(unittest.TestCase):
         self.assertIn("roll_keep_for 14d", caddyfile)
 
     def test_16_rate_limiting_and_log_purging(self):
-        """Verifica generazione Caddyfile compatibile con caddy:alpine (senza plugin rate_limit) e purging log SQLite."""
+        """Verify Caddyfile compatibility with official caddy:alpine image and SQLite access log retention purging."""
         hosts = db.get_all_hosts()
         settings = db.get_settings()
 
@@ -637,7 +637,7 @@ class TestEdgeProxyManager(unittest.TestCase):
         conn.close()
 
     def test_17_rathole_client_placeholder_when_no_active_services(self):
-        """Verifica generazione di placeholder di sicurezza in client.toml quando non ci sono servizi attivi."""
+        """Verify security placeholder service in client.toml when no active services are configured."""
         settings = db.get_settings()
 
         # 1. Lista vuota
@@ -671,7 +671,7 @@ class TestEdgeProxyManager(unittest.TestCase):
         self.assertIn('local_addr = "127.0.0.1:3000"', toml_active)
 
     def test_18_manager_domain_oauth_protection(self):
-        """Verifica che manager.{$DOMAIN} includa 'import google_auth' solo quando Google OAuth2 e' configurato."""
+        """Verify that manager.{$DOMAIN} includes 'import google_auth' only when Google OAuth2 is enabled."""
         hosts = db.get_all_hosts()
 
         # 1. OAuth non configurato (o disattivato)
@@ -682,23 +682,23 @@ class TestEdgeProxyManager(unittest.TestCase):
             "google_client_secret": ""
         }
         caddy_no_oauth = config_engine.generate_caddyfile(hosts, settings_no_oauth)
-        # Il blocco manager.{$DOMAIN:edge.mpv.cx} non deve contenere import google_auth
-        manager_section_no_oauth = caddy_no_oauth.split("manager.{$DOMAIN:edge.mpv.cx} {")[1].split("auth.{$DOMAIN:edge.mpv.cx} {")[0]
+        # The manager.{$DOMAIN:example.com} block must not contain import google_auth
+        manager_section_no_oauth = caddy_no_oauth.split("manager.{$DOMAIN:example.com} {")[1].split("auth.{$DOMAIN:example.com} {")[0]
         self.assertNotIn("import google_auth", manager_section_no_oauth)
 
-        # 2. OAuth configurato con credenziali valide
+        # 2. OAuth configured with valid credentials
         settings_oauth = {
-            "acme_email": "matteo.piva@gmail.com",
+            "acme_email": "admin@example.com",
             "google_oauth_enabled": "1",
             "google_client_id": "valid-client-id.apps.googleusercontent.com",
             "google_client_secret": "valid-secret-key"
         }
         caddy_oauth = config_engine.generate_caddyfile(hosts, settings_oauth)
-        manager_section_oauth = caddy_oauth.split("manager.{$DOMAIN:edge.mpv.cx} {")[1].split("auth.{$DOMAIN:edge.mpv.cx} {")[0]
+        manager_section_oauth = caddy_oauth.split("manager.{$DOMAIN:example.com} {")[1].split("auth.{$DOMAIN:example.com} {")[0]
         self.assertIn("import google_auth", manager_section_oauth)
 
     def test_19_security_hardening_perimeter(self):
-        """Verifica hardening perimetrale: anti-fingerprinting (-Server), blocco dotfiles, anti-spoofing auth e DoS limits."""
+        """Verify perimeter security hardening: anti-fingerprinting (-Server), dotfile blocking, auth anti-spoofing, and DoS limits."""
         hosts = [
             {
                 "id": 1,
@@ -730,39 +730,39 @@ class TestEdgeProxyManager(unittest.TestCase):
             }
         ]
         settings = {
-            "acme_email": "matteo.piva@gmail.com",
+            "acme_email": "admin@example.com",
             "google_oauth_enabled": "1",
             "google_client_id": "client-id",
             "google_client_secret": "client-secret"
         }
         caddyfile = config_engine.generate_caddyfile(hosts, settings)
 
-        # 1. Anti-Fingerprinting e Stealth Hardening (Server: EdgeProxy ovunque)
+        # 1. Anti-Fingerprinting and Stealth Hardening (Server: EdgeProxy everywhere)
         self.assertIn('Server "EdgeProxy"', caddyfile)
         self.assertNotIn("-Server", caddyfile)
         self.assertIn(':80 {', caddyfile)
         self.assertIn(':443 {', caddyfile)
         self.assertIn('respond "Unauthorized" 401', caddyfile)
 
-        # 2. Blocco Dotfiles e File Nascosti (@hidden_files path */.* con status 404 e close)
+        # 2. Block Dotfiles and Hidden Files (@hidden_files path */.* with status 404 and close)
         self.assertIn("@hidden_files path */.*", caddyfile)
         self.assertIn('respond "404 Not Found" 404 {', caddyfile)
         self.assertIn("close", caddyfile)
 
-        # 3. Protezione DoS su Payload e Buffer
+        # 3. DoS Protection on Payload and Buffers
         self.assertIn("request_body {", caddyfile)
         self.assertIn("max_size 100MB", caddyfile)
 
-        # 4. Security Headers Avanzati (HSTS, nosniff, SAMEORIGIN, Referrer-Policy, Permissions-Policy)
+        # 4. Advanced Security Headers (HSTS, nosniff, SAMEORIGIN, Referrer-Policy, Permissions-Policy)
         self.assertIn("Strict-Transport-Security", caddyfile)
         self.assertIn("X-Content-Type-Options \"nosniff\"", caddyfile)
         self.assertIn("X-Frame-Options \"SAMEORIGIN\"", caddyfile)
         self.assertIn("Referrer-Policy \"strict-origin-when-cross-origin\"", caddyfile)
         self.assertIn("Permissions-Policy \"accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()\"", caddyfile)
 
-        # 5. Anti-Spoofing degli Header di Autenticazione:
-        # Nello snippet google_auth
-        google_auth_snippet = caddyfile.split("(google_auth) {")[1].split("manager.{$DOMAIN:edge.mpv.cx} {")[0]
+        # 5. Authentication Header Anti-Spoofing
+        # In google_auth snippet
+        google_auth_snippet = caddyfile.split("(google_auth) {")[1].split("manager.{$DOMAIN:example.com} {")[0]
         self.assertIn("header_up -X-Auth-Request-User", google_auth_snippet)
         self.assertIn("header_up -X-Auth-Request-Email", google_auth_snippet)
 
@@ -777,7 +777,7 @@ class TestEdgeProxyManager(unittest.TestCase):
 
 
     def test_20_client_ping_and_latency_telemetry(self):
-        """Verifica endpoint ping, misurazione latenza RTT client-server e svecchiamento dati."""
+        """Verify client ping endpoint, RTT latency telemetry reporting, and telemetry data retention."""
         # 1. Test endpoint GET /api/v1/client/ping
         ping_res = self.client.get("/api/v1/client/ping")
         self.assertEqual(ping_res.status_code, 200)

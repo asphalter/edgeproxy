@@ -292,9 +292,9 @@ def seed_database(cursor: sqlite3.Cursor, conn: sqlite3.Connection):
     count_root = cursor.fetchone()[0]
 
     if count_root == 0:
-        root_domain = os.environ.get("DOMAIN", "edge.mpv.cx")
-        acme_email = os.environ.get("ACME_EMAIL", "matteo.piva@gmail.com")
-        rathole_public_host = os.environ.get("RATHOLE_PUBLIC_HOST", "edge.mpv.cx")
+        root_domain = os.environ.get("DOMAIN", "example.com")
+        acme_email = os.environ.get("ACME_EMAIL", "admin@example.com")
+        rathole_public_host = os.environ.get("RATHOLE_PUBLIC_HOST", "example.com")
         default_settings = {
             "root_domain": root_domain,
             "acme_email": acme_email,
@@ -304,7 +304,7 @@ def seed_database(cursor: sqlite3.Cursor, conn: sqlite3.Connection):
             "google_oauth_enabled": "0",
             "google_client_id": "",
             "google_client_secret": "",
-            "google_allowed_emails": "matteo.piva@gmail.com",
+            "google_allowed_emails": "admin@example.com",
             "oauth2_cookie_secret": secrets.token_urlsafe(32),
         }
         for k, v in default_settings.items():

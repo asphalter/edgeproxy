@@ -23,13 +23,21 @@
     - GitHub Actions Workflow [`.github/workflows/build-and-push.yml`](.github/workflows/build-and-push.yml) per la compilazione e pubblicazione automatizzata su `ghcr.io`.
   - **4. Pulizia Repository e Documentazione**:
     - Eliminati tutti i vecchi Quadlet del pod multi-container, vecchi tarball, file `.env.example`, vecchi script di deploy/installazione e Containerfile ridondanti.
-    - Guide [`INSTALL.md`](INSTALL.md) e [`README.md`](README.md) interamente riscritte per illustrare esclusivamente la distribuzione con container GHCR precompilati e Quadlet.
+    - Rimosso [`INSTALL.md`](INSTALL.md) e consolidata tutta la documentazione di installazione e architettura in [`README.md`](README.md).
   - **5. Stealth Hardening & Black-boxing Caddy (Ottobre 2026)**:
     - Rimosso qualsiasi banner default Caddy e impostato tassativamente l'header uniforme `Server: EdgeProxy` su tutte le risposte HTTP/HTTPS (apex, vhost UI manager/auth, host proxati e blocchi di fallback).
-    - Risposta `401 Unauthorized` con chiusura immediata della connessione TCP (`close`) su apex domain (`edge.mpv.cx`) e per qualsiasi richiesta ad IP diretto o hostname non gestito su `:80` e `:443`.
+    - Risposta `401 Unauthorized` con chiusura immediata della connessione TCP (`close`) su apex domain e per qualsiasi richiesta ad IP diretto o hostname non gestito su `:80` e `:443`.
   - **6. Telemetria Latenza RTT e Visualizzazione UI (Ottobre 2026)**:
-    - Misurazione automatica RTT in millisecondi in [`client/entrypoint.sh`](client/entrypoint.sh) verso `/api/v1/client/ping`.
+    - Misurazione automatica pura del 3-way handshake RTT TCP (sottraendo il tempo DNS `time_namelookup` da `time_connect`) in millisecondi in [`client/entrypoint.sh`](client/entrypoint.sh) verso `/api/v1/client/ping`.
     - Tabella persistente `client_latency_stats` e colonna `latency_ms` in `client_status` con migrazione dinamica in [`server/manager/db.py`](server/manager/db.py).
     - Data aging automatico dei record di latenza in [`db.purge_old_access_logs()`](server/manager/db.py:790).
     - Endpoint API `GET /api/v1/stats/latency?hours=24` per Chart.js.
     - Card con badge cromatico per "Tunnel Latency" in [`dashboard.html`](server/manager/templates/dashboard.html), campo telemetria in tempo reale in [`links.html`](server/manager/templates/links.html) e grafico Chart.js dedicato in [`stats.html`](server/manager/templates/stats.html).
+  - **7. Open-Source Scrubbing, Traduzione Integrale in Inglese e Riscrizione README (Ottobre 2026)**:
+    - Rimosso qualsiasi riferimento residuo ad email o domini specifici (`matteo.piva@gmail.com`, `mpv.cx`, `edge.mpv.cx`) dai default, configurazioni di Caddy, OAuth2-Proxy, Quadlet, templates e database seed, sostituendoli con `example.com` e `admin@example.com`.
+    - Traduzione integrale in lingua inglese di commenti, docstring, messaggi di log, printout a terminale, form hints, script shell [`scripts/build-images.sh`](scripts/build-images.sh) e test unitari [`tests/test_manager.py`](tests/test_manager.py).
+    - Rimozione definitiva di `INSTALL.md` e riscrittura di [`README.md`](README.md) come presentazione ufficiale open-source GitHub con guida passo-passo completa, diagrammi e troubleshooting.
+  - **8. Brand Asset Rendering (Ottobre 2026)**:
+    - Generato asset ad alta risoluzione [`docs/assets/logo.png`](docs/assets/logo.png) (2400x1020 RGBA) tramite container Podman effimero.
+    - Rimosso il file SVG intermedio mantenendo esclusivamente [`docs/assets/logo.png`](docs/assets/logo.png).
+    - Aggiornato [`README.md`](README.md) per includere [`docs/assets/logo.png`](docs/assets/logo.png).

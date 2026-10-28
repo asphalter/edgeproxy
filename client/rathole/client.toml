@@ -5,7 +5,7 @@
 # ==============================================================================
 
 [client]
-remote_addr = "edge.mpv.cx:2333"
+remote_addr = "example.com:2333"
 
 [client.transport]
 type = "noise"
