@@ -768,17 +768,19 @@ def get_recent_access_logs(
     if status is not None and str(status).strip():
         s_val = str(status).strip().lower()
         if s_val == "2xx":
-            conditions.append("status >= 200 AND status < 300")
+            conditions.append("CAST(status AS INTEGER) >= 200 AND CAST(status AS INTEGER) < 300")
         elif s_val == "3xx":
-            conditions.append("status >= 300 AND status < 400")
+            conditions.append("CAST(status AS INTEGER) >= 300 AND CAST(status AS INTEGER) < 400")
         elif s_val == "4xx":
-            conditions.append("status >= 400 AND status < 500")
+            conditions.append("CAST(status AS INTEGER) >= 400 AND CAST(status AS INTEGER) < 500")
         elif s_val == "5xx":
-            conditions.append("status >= 500 AND status < 600")
+            conditions.append("CAST(status AS INTEGER) >= 500 AND CAST(status AS INTEGER) < 600")
+        elif s_val == "error":
+            conditions.append("CAST(status AS INTEGER) >= 400")
         else:
             try:
                 code = int(s_val)
-                conditions.append("status = ?")
+                conditions.append("CAST(status AS INTEGER) = ?")
                 params.append(code)
             except ValueError:
                 pass

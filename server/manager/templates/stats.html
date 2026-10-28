@@ -223,8 +223,8 @@
     <!-- Terminal/Dark Filter Bar for Access Logs -->
     <div style="background: rgba(10, 13, 20, 0.85); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 0.85rem 1rem; margin-bottom: 1.25rem; display: flex; flex-wrap: wrap; gap: 0.85rem; align-items: flex-end;">
         <div style="flex: 1; min-width: 170px;">
-            <label for="logHostFilter" style="font-size: 0.7rem; text-transform: uppercase; color: var(--text-muted); font-family: var(--font-mono); margin-bottom: 0.35rem; display: block; letter-spacing: 0.5px;">Select Host</label>
-            <select id="logHostFilter" class="form-control" style="background: var(--bg-input); color: var(--text-primary); border: 1px solid var(--border-subtle); padding: 0.45rem 0.65rem; border-radius: 4px; width: 100%; font-family: var(--font-mono); font-size: 0.8rem;" onchange="loadAccessLogs()">
+            <label for="filter-host" style="font-size: 0.7rem; text-transform: uppercase; color: var(--text-muted); font-family: var(--font-mono); margin-bottom: 0.35rem; display: block; letter-spacing: 0.5px;">Select Host</label>
+            <select id="filter-host" name="logHostFilter" class="form-control" style="background: var(--bg-input); color: var(--text-primary); border: 1px solid var(--border-subtle); padding: 0.45rem 0.65rem; border-radius: 4px; width: 100%; font-family: var(--font-mono); font-size: 0.8rem;" onchange="loadAccessLogs()">
                 <option value="">All Hosts</option>
                 {% for h in hosts %}
                 <option value="{{ h.domain }}" {% if filter_host == h.domain %}selected{% endif %}>{{ h.domain }}</option>
@@ -233,37 +233,39 @@
         </div>
 
         <div style="width: 185px;">
-            <label for="logStatusFilter" style="font-size: 0.7rem; text-transform: uppercase; color: var(--text-muted); font-family: var(--font-mono); margin-bottom: 0.35rem; display: block; letter-spacing: 0.5px;">Select Status / Outcome</label>
-            <select id="logStatusFilter" class="form-control" style="background: var(--bg-input); color: var(--text-primary); border: 1px solid var(--border-subtle); padding: 0.45rem 0.65rem; border-radius: 4px; width: 100%; font-family: var(--font-mono); font-size: 0.8rem;" onchange="loadAccessLogs()">
+            <label for="filter-status" style="font-size: 0.7rem; text-transform: uppercase; color: var(--text-muted); font-family: var(--font-mono); margin-bottom: 0.35rem; display: block; letter-spacing: 0.5px;">Select Status / Outcome</label>
+            <select id="filter-status" name="logStatusFilter" class="form-control" style="background: var(--bg-input); color: var(--text-primary); border: 1px solid var(--border-subtle); padding: 0.45rem 0.65rem; border-radius: 4px; width: 100%; font-family: var(--font-mono); font-size: 0.8rem;" onchange="loadAccessLogs()">
                 <option value="" {% if not filter_status %}selected{% endif %}>All Statuses</option>
                 <option value="2xx" {% if filter_status == '2xx' %}selected{% endif %}>2xx (Success)</option>
                 <option value="3xx" {% if filter_status == '3xx' %}selected{% endif %}>3xx (Redirect)</option>
+                <option value="4xx" {% if filter_status == '4xx' %}selected{% endif %}>4xx (Client Error)</option>
                 <option value="401" {% if filter_status == '401' %}selected{% endif %}>401 (Unauthorized)</option>
                 <option value="403" {% if filter_status == '403' %}selected{% endif %}>403 (Forbidden)</option>
                 <option value="404" {% if filter_status == '404' %}selected{% endif %}>404 (Not Found)</option>
                 <option value="5xx" {% if filter_status == '5xx' %}selected{% endif %}>5xx (Server Error)</option>
+                <option value="error" {% if filter_status == 'error' %}selected{% endif %}>Errors (4xx + 5xx)</option>
             </select>
         </div>
 
         <div style="flex: 1.3; min-width: 220px;">
-            <label for="logIpFilter" style="font-size: 0.7rem; text-transform: uppercase; color: var(--text-muted); font-family: var(--font-mono); margin-bottom: 0.35rem; display: block; letter-spacing: 0.5px;">Client IP</label>
+            <label for="filter-ip" style="font-size: 0.7rem; text-transform: uppercase; color: var(--text-muted); font-family: var(--font-mono); margin-bottom: 0.35rem; display: block; letter-spacing: 0.5px;">Client IP</label>
             <div style="position: relative;">
                 <svg style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); width: 14px; height: 14px; color: var(--text-muted); pointer-events: none;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <circle cx="11" cy="11" r="8"></circle>
                     <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                 </svg>
-                <input type="text" id="logIpFilter" class="form-control" placeholder="Filter by Client IP (e.g. 192.168. or 93.38.)" value="{{ filter_ip }}" style="background: var(--bg-input); color: var(--text-primary); border: 1px solid var(--border-subtle); padding: 0.45rem 0.65rem 0.45rem 2rem; border-radius: 4px; width: 100%; font-family: var(--font-mono); font-size: 0.8rem;" onkeydown="if(event.key==='Enter') loadAccessLogs()">
+                <input type="text" id="filter-ip" name="logIpFilter" class="form-control" placeholder="Filter by Client IP (e.g. 192.168. or 93.38.)" value="{{ filter_ip }}" style="background: var(--bg-input); color: var(--text-primary); border: 1px solid var(--border-subtle); padding: 0.45rem 0.65rem 0.45rem 2rem; border-radius: 4px; width: 100%; font-family: var(--font-mono); font-size: 0.8rem;" onkeydown="if(event.key==='Enter') loadAccessLogs()">
             </div>
         </div>
 
         <div style="display: flex; gap: 0.4rem; align-items: flex-end;">
-            <button type="button" class="btn btn-primary" onclick="loadAccessLogs()" style="padding: 0.45rem 0.85rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.35rem;">
+            <button type="button" id="btnFilterLogs" class="btn btn-primary" onclick="loadAccessLogs()" style="padding: 0.45rem 0.85rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.35rem;">
                 <svg style="width: 13px; height: 13px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
                 </svg>
                 Filter
             </button>
-            <button type="button" class="btn btn-secondary" onclick="resetAccessFilters()" style="padding: 0.45rem 0.85rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.35rem;">
+            <button type="button" id="btnResetLogs" class="btn btn-secondary" onclick="resetAccessFilters()" style="padding: 0.45rem 0.85rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.35rem;">
                 <svg style="width: 13px; height: 13px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
                     <path d="M3 3v5h5"></path>
@@ -286,7 +288,7 @@
                     <th style="width: 80px;">Duration</th>
                 </tr>
             </thead>
-            <tbody id="accessLogsTableBody">
+            <tbody id="access-logs-tbody">
                 {% if recent_logs %}
                     {% for l in recent_logs %}
                     {% set code = l.status | int %}
@@ -333,6 +335,16 @@
 <script>
     let bandwidthChartInstance = null;
     let latencyChartInstance = null;
+
+    function escapeHtml(str) {
+        if (str === null || str === undefined) return '';
+        return String(str)
+            .replace(/&/g, '&')
+            .replace(/</g, '<')
+            .replace(/>/g, '>')
+            .replace(/"/g, '"')
+            .replace(/'/g, '&#039;');
+    }
 
     const CHART_COLORS = [
         { border: '#38bdf8', bg: 'rgba(56, 189, 248, 0.15)' },
@@ -501,9 +513,9 @@
     }
 
     function resetAccessFilters() {
-        const hostFilter = document.getElementById('logHostFilter');
-        const statusFilter = document.getElementById('logStatusFilter');
-        const ipFilter = document.getElementById('logIpFilter');
+        const hostFilter = document.getElementById('filter-host') || document.getElementById('logHostFilter');
+        const statusFilter = document.getElementById('filter-status') || document.getElementById('logStatusFilter');
+        const ipFilter = document.getElementById('filter-ip') || document.getElementById('logIpFilter');
         if (hostFilter) {
             hostFilter.value = '';
             delete hostFilter.dataset.manuallySet;
@@ -514,37 +526,41 @@
     }
 
     async function loadAccessLogs() {
-        const logHostElem = document.getElementById('logHostFilter');
+        const hostElem = document.getElementById('filter-host') || document.getElementById('logHostFilter');
+        const statusElem = document.getElementById('filter-status') || document.getElementById('logStatusFilter');
+        const ipElem = document.getElementById('filter-ip') || document.getElementById('logIpFilter');
+        const limitElem = document.getElementById('limitSelect');
         const hostSelectElem = document.getElementById('hostSelect');
-        const host = (logHostElem?.value !== undefined && logHostElem.value !== '' ? logHostElem.value : (hostSelectElem?.value || '')).trim();
-        const status = (document.getElementById('logStatusFilter')?.value || '').trim();
-        const ip = (document.getElementById('logIpFilter')?.value || '').trim();
-        const limit = (document.getElementById('limitSelect')?.value || '50').trim();
-        const tbody = document.getElementById('accessLogsTableBody');
+
+        let host = (hostElem?.value || '').trim();
+        // If specific log filter host is empty, fall back to global host select if selected
+        if (!host && hostSelectElem && hostSelectElem.value) {
+            host = hostSelectElem.value.trim();
+        }
+        const status = (statusElem?.value || '').trim();
+        const ip = (ipElem?.value || '').trim();
+        const limit = (limitElem?.value || '50').trim();
+        const tbody = document.getElementById('access-logs-tbody') || document.getElementById('accessLogsTableBody');
         const badge = document.getElementById('accessCountBadge');
 
         try {
-            const params = new URLSearchParams();
-            if (host) params.append('host', host);
-            if (status) params.append('status', status);
-            if (ip) params.append('ip', ip);
-            if (limit) params.append('limit', limit);
-
-            const url = `/api/v1/stats/access?${params.toString()}`;
+            const url = `/api/v1/stats/access?status=${encodeURIComponent(status)}&host=${encodeURIComponent(host)}&ip=${encodeURIComponent(ip)}${limit ? `&limit=${encodeURIComponent(limit)}` : ''}`;
             const res = await fetch(url);
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const data = await res.json();
-            const logs = data.logs || [];
+            const logs = Array.isArray(data) ? data : (data.logs || []);
 
-            badge.textContent = `${logs.length} records`;
+            if (badge) badge.textContent = `${logs.length} records`;
             const statTotalReq = document.getElementById('statTotalRequests');
             if (statTotalReq) statTotalReq.textContent = logs.length;
+
+            if (!tbody) return;
 
             if (logs.length === 0) {
                 tbody.innerHTML = `
                     <tr>
                         <td colspan="7" style="text-align: center; color: var(--text-muted); padding: 1.5rem; font-family: var(--font-mono);">
-                            No recent access logs recorded matching criteria.
+                            No logs matching filters found.
                         </td>
                     </tr>
                 `;
@@ -572,10 +588,10 @@
                         <td style="font-family: var(--font-mono); color: #38bdf8; font-weight: 600;">${escapeHtml(l.host || '')}</td>
                         <td style="font-family: var(--font-mono); color: var(--text-secondary);">${escapeHtml(l.remote_ip || '')}</td>
                         <td style="font-family: var(--font-mono); color: var(--text-primary); max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(l.uri || '')}">
-                            ${escapeHtml(l.uri || '/')}
+                            ${escapeHtml(l.method || 'GET')} ${escapeHtml(l.uri || '/')}
                         </td>
                         <td>
-                            <span class="badge" style="font-size: 0.7rem; padding: 0.15rem 0.45rem; ${badgeStyle}">${l.status}</span>
+                            <span class="badge" style="font-size: 0.7rem; padding: 0.15rem 0.45rem; ${badgeStyle}">${escapeHtml(l.status)}</span>
                         </td>
                         <td style="font-family: var(--font-mono); color: var(--text-secondary);">${formatBytes(l.bytes_out || l.bytes || 0)}</td>
                         <td style="font-family: var(--font-mono); color: var(--text-muted);">${(l.duration_ms || 0).toFixed(1)} ms</td>
@@ -585,15 +601,21 @@
 
         } catch (err) {
             console.error('Error loading access logs:', err);
-            tbody.innerHTML = `
-                <tr>
-                    <td colspan="7" style="text-align: center; color: #f87171; padding: 1.5rem; font-family: var(--font-mono);">
-                        Failed to load access logs: ${escapeHtml(err.message)}
-                    </td>
-                </tr>
-            `;
+            if (tbody) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="7" style="text-align: center; color: #f87171; padding: 1.5rem; font-family: var(--font-mono);">
+                            Failed to load access logs: ${escapeHtml(err.message)}
+                        </td>
+                    </tr>
+                `;
+            }
         }
     }
+
+    const applyLogsFilter = loadAccessLogs;
+    const applyFilter = loadAccessLogs;
+    const resetFilter = resetAccessFilters;
 
     function updatePeriodLabel() {
         const hours = document.getElementById('timeRangeSelect').value;

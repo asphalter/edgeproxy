@@ -1066,9 +1066,28 @@ class TestEdgeProxyManager(unittest.TestCase):
         self.assertIn("Filter by Client IP", view_res.text)
         self.assertIn("loadAccessLogs", view_res.text)
         self.assertIn("resetAccessFilters", view_res.text)
+        self.assertIn("filter-status", view_res.text)
+        self.assertIn("filter-host", view_res.text)
+        self.assertIn("filter-ip", view_res.text)
+        self.assertIn("access-logs-tbody", view_res.text)
+        self.assertIn("escapeHtml", view_res.text)
         # Verifica che il log prefiltrato sia renderizzato
         self.assertIn(test_host1, view_res.text)
         self.assertIn("192.168.1.52", view_res.text)
+
+        # 10. Test API /api/v1/stats/access con filtro 2xx e CAST SQL
+        api_2xx = self.client.get("/api/v1/stats/access?status=2xx&limit=50")
+        self.assertEqual(api_2xx.status_code, 200)
+        data_2xx = api_2xx.json()
+        self.assertEqual(data_2xx["status"], "ok")
+        self.assertTrue(all(200 <= int(l["status"]) < 300 for l in data_2xx["logs"]))
+        self.assertTrue(any(int(l["status"]) == 200 for l in data_2xx["logs"]))
+
+        # 11. Test API /api/v1/stats/access con filtro error (4xx + 5xx)
+        api_err = self.client.get("/api/v1/stats/access?status=error&limit=50")
+        self.assertEqual(api_err.status_code, 200)
+        data_err = api_err.json()
+        self.assertTrue(all(int(l["status"]) >= 400 for l in data_err["logs"]))
 
     def test_mathematical_coherence_bytes_today_leq_bytes_out(self):
         """
