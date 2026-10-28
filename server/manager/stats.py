@@ -63,6 +63,11 @@ def parse_caddy_log_line(line: str) -> Optional[Tuple[Dict[str, Any], str, int]]
 
         host = req.get("host", "").lower().split(":")[0]
         uri = req.get("uri", "/")
+
+        # Discard Rathole client polling, telemetry and sync requests to prevent access log flooding
+        if uri.startswith("/api/v1/client"):
+            return None
+
         status = int(data.get("status", 200))
 
         # Client IP extraction (considering headers if present)
@@ -212,6 +217,19 @@ def process_access_log_file(log_path: Optional[str] = None) -> int:
                     "requests": vals["requests"],
                 })
             db.upsert_bandwidth_batch(bw_list)
+
+            # Accumulate and increment per-host outbound traffic (30-day auto-reset counter)
+            host_traffic_acc: Dict[str, Dict[str, int]] = {}
+            for entry in parsed_logs:
+                h = entry["host"]
+                b = entry.get("bytes_out", 0)
+                if h not in host_traffic_acc:
+                    host_traffic_acc[h] = {"bytes_out": 0, "requests": 0}
+                host_traffic_acc[h]["bytes_out"] += b
+                host_traffic_acc[h]["requests"] += 1
+
+            for h, hdata in host_traffic_acc.items():
+                db.increment_host_traffic(h, hdata["bytes_out"], hdata["requests"])
         except Exception as e:
             logger.error(f"Error persisting access logs and bandwidth stats to DB: {e}")
             return 0

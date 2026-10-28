@@ -133,7 +133,9 @@ auth.{$DOMAIN:example.com} {
 			close
 		}
 	}
-	handle /api/v1/client/* {
+	@api_client path /api/v1/client/*
+	handle @api_client {
+		log_skip
 		reverse_proxy {$MANAGER_ADDR:127.0.0.1:8000} {
 			header_up Host {host}
 			header_up X-Real-IP {remote_host}

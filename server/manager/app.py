@@ -693,13 +693,38 @@ async def stats_view(request: Request):
     hosts = db.get_all_hosts()
     settings = db.get_settings()
     recent_logs = db.get_recent_access_logs(limit=25)
+    host_traffic = db.get_all_host_traffic_stats()
 
     return templates.TemplateResponse(request=request, name="stats.html", context={
         "page_title": "Statistics",
         "hosts": hosts,
         "settings": settings,
         "recent_logs": recent_logs,
+        "host_traffic": host_traffic,
     })
+
+
+@app.get("/api/v1/stats/traffic")
+async def api_stats_traffic():
+    """Retrieve per-host outbound traffic statistics and auto-reset status."""
+    traffic = await asyncio.to_thread(db.get_all_host_traffic_stats)
+    return {"status": "ok", "traffic": traffic, "count": len(traffic)}
+
+
+@app.post("/stats/traffic/reset")
+async def stats_traffic_reset(request: Request, host: Optional[str] = Form(None)):
+    """Reset outbound traffic counters for a specific host or all hosts."""
+    target_host = host
+    if not target_host:
+        target_host = request.query_params.get("host")
+    if target_host:
+        target_host = target_host.strip()
+        if not target_host:
+            target_host = None
+
+    await asyncio.to_thread(db.reset_host_traffic, target_host)
+    msg = f"Traffic statistics reset successfully for {target_host}" if target_host else "Traffic statistics reset successfully"
+    return RedirectResponse(url=f"/stats?msg={urllib_quote(msg)}", status_code=303)
 
 
 @app.get("/api/v1/stats/access-logs")

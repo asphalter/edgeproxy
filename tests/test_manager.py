@@ -834,5 +834,102 @@ class TestEdgeProxyManager(unittest.TestCase):
         self.assertEqual(row[0], 0)
 
 
+    def test_client_log_exclusion_and_outbound_traffic_stats(self):
+        """Test anti-flood filter for /api/v1/client and per-host outbound traffic tracking with auto/manual reset."""
+        import stats
+
+        # 1. Test anti-flood exclusion in stats.parse_caddy_log_line
+        client_sync_line = json.dumps({
+            "ts": 1700000000.0,
+            "request": {"host": "auth.example.com", "uri": "/api/v1/client/config", "method": "GET"},
+            "status": 200,
+            "size": 1500
+        })
+        self.assertIsNone(stats.parse_caddy_log_line(client_sync_line))
+
+        client_telemetry_line = json.dumps({
+            "ts": 1700000000.0,
+            "request": {"host": "auth.example.com", "uri": "/api/v1/client/telemetry", "method": "POST"},
+            "status": 200,
+            "size": 250
+        })
+        self.assertIsNone(stats.parse_caddy_log_line(client_telemetry_line))
+
+        normal_line = json.dumps({
+            "ts": 1700000000.0,
+            "request": {"host": "demo.mycompany.org", "uri": "/dashboard", "method": "GET"},
+            "status": 200,
+            "size": 4096
+        })
+        parsed = stats.parse_caddy_log_line(normal_line)
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed[0]["host"], "demo.mycompany.org")
+        self.assertEqual(parsed[2], 4096)
+
+        # 2. Test incrementing traffic stats
+        test_host = "traffic-test.example.com"
+        db.increment_host_traffic(test_host, 1024 * 1024, 1)  # 1 MB, 1 req
+        traffic_list = db.get_all_host_traffic_stats()
+        found = next((t for t in traffic_list if t["host"] == test_host), None)
+        self.assertIsNotNone(found)
+        self.assertEqual(found["bytes_out"], 1024 * 1024)
+        self.assertEqual(found["requests_count"], 1)
+        self.assertIn("1.00 MB", found["formatted_bytes"])
+
+        # Second increment
+        db.increment_host_traffic(test_host, 2 * 1024 * 1024, 4)
+        traffic_list = db.get_all_host_traffic_stats()
+        found = next((t for t in traffic_list if t["host"] == test_host), None)
+        self.assertEqual(found["bytes_out"], 3 * 1024 * 1024)
+        self.assertEqual(found["requests_count"], 5)
+
+        # 3. Test 30-day auto-reset
+        conn = db.get_db_connection()
+        conn.execute("UPDATE host_traffic_stats SET last_reset = datetime('now', '-31 days') WHERE host = ?;", (test_host,))
+        conn.commit()
+        conn.close()
+
+        # Calling increment after 30 days should reset old counters and set to new values
+        db.increment_host_traffic(test_host, 500, 1)
+        traffic_list = db.get_all_host_traffic_stats()
+        found = next((t for t in traffic_list if t["host"] == test_host), None)
+        self.assertEqual(found["bytes_out"], 500)
+        self.assertEqual(found["requests_count"], 1)
+
+        # 4. Test API GET /api/v1/stats/traffic
+        api_res = self.client.get("/api/v1/stats/traffic")
+        self.assertEqual(api_res.status_code, 200)
+        api_data = api_res.json()
+        self.assertEqual(api_data.get("status"), "ok")
+        self.assertTrue(any(t["host"] == test_host for t in api_data.get("traffic", [])))
+
+        # 5. Test manual reset via POST /stats/traffic/reset for single host
+        reset_res = self.client.post("/stats/traffic/reset", data={"host": test_host}, follow_redirects=False)
+        self.assertEqual(reset_res.status_code, 303)
+
+        traffic_list = db.get_all_host_traffic_stats()
+        found = next((t for t in traffic_list if t["host"] == test_host), None)
+        self.assertEqual(found["bytes_out"], 0)
+        self.assertEqual(found["requests_count"], 0)
+
+        # 6. Test manual reset for all hosts
+        db.increment_host_traffic("host-a.example.com", 2000, 2)
+        db.increment_host_traffic("host-b.example.com", 3000, 3)
+        reset_all_res = self.client.post("/stats/traffic/reset", follow_redirects=False)
+        self.assertEqual(reset_all_res.status_code, 303)
+
+        traffic_list = db.get_all_host_traffic_stats()
+        for t in traffic_list:
+            if t["host"] in ("host-a.example.com", "host-b.example.com"):
+                self.assertEqual(t["bytes_out"], 0)
+                self.assertEqual(t["requests_count"], 0)
+
+        # 7. Test /stats HTML view contains new table section
+        stats_html_res = self.client.get("/stats")
+        self.assertEqual(stats_html_res.status_code, 200)
+        self.assertIn("Per-Host Outbound Traffic (30-Day Auto-Reset)", stats_html_res.text)
+        self.assertIn("/stats/traffic/reset", stats_html_res.text)
+
+
 if __name__ == "__main__":
     unittest.main()

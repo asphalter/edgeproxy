@@ -156,6 +156,17 @@ def init_db():
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_bw_bucket ON bandwidth_stats(bucket_ts);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_bw_host ON bandwidth_stats(host);")
 
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS host_traffic_stats (
+        host TEXT PRIMARY KEY,
+        bytes_out INTEGER DEFAULT 0,
+        requests_count INTEGER DEFAULT 0,
+        last_reset TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_host_traffic_reset ON host_traffic_stats(last_reset);")
+
     # Column migrations
     cursor.execute("PRAGMA table_info(hosts);")
     existing_host_cols = {col["name"] for col in cursor.fetchall()}
@@ -904,6 +915,205 @@ def purge_old_access_logs(days: Optional[int] = None) -> int:
     finally:
         conn.close()
     return deleted_total
+
+
+def format_bytes(num_bytes: int) -> str:
+    """Format bytes into human-readable string (B, KB, MB, GB, TB)."""
+    if num_bytes < 1024:
+        return f"{num_bytes} B"
+    val = float(num_bytes)
+    for unit in ["KB", "MB", "GB", "TB"]:
+        val /= 1024.0
+        if val < 1024.0:
+            return f"{val:.2f} {unit}"
+    return f"{val:.2f} PB"
+
+
+def increment_host_traffic(host: str, bytes_out: int, requests: int = 1):
+    """
+    Increment outbound traffic and request counters for a host.
+    Automatically resets counters if 30 days have elapsed since last_reset.
+    """
+    if not host:
+        return
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT host, bytes_out, requests_count, last_reset
+            FROM host_traffic_stats
+            WHERE host = ?;
+        """, (host,))
+        row = cursor.fetchone()
+
+        now = datetime.now(timezone.utc)
+        now_str = now.strftime("%Y-%m-%d %H:%M:%S")
+
+        if row:
+            last_reset_str = row["last_reset"]
+            is_expired = False
+            if last_reset_str:
+                try:
+                    cleaned_ts = str(last_reset_str).replace("T", " ")[:19]
+                    lr_dt = datetime.strptime(cleaned_ts, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+                    if (now - lr_dt).total_seconds() >= 30 * 86400:
+                        is_expired = True
+                except Exception:
+                    pass
+
+            if is_expired:
+                cursor.execute("""
+                    UPDATE host_traffic_stats
+                    SET bytes_out = ?, requests_count = ?, last_reset = ?, updated_at = ?
+                    WHERE host = ?;
+                """, (bytes_out, requests, now_str, now_str, host))
+            else:
+                cursor.execute("""
+                    UPDATE host_traffic_stats
+                    SET bytes_out = bytes_out + ?, requests_count = requests_count + ?, updated_at = ?
+                    WHERE host = ?;
+                """, (bytes_out, requests, now_str, host))
+        else:
+            cursor.execute("""
+                INSERT INTO host_traffic_stats (host, bytes_out, requests_count, last_reset, updated_at)
+                VALUES (?, ?, ?, ?, ?);
+            """, (host, bytes_out, requests, now_str, now_str))
+
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def reset_host_traffic(host: Optional[str] = None):
+    """
+    Reset traffic counters for a specific host or all hosts.
+    Re-sets last_reset to CURRENT_TIMESTAMP and resets counters to 0.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        if host:
+            cursor.execute("""
+                INSERT INTO host_traffic_stats (host, bytes_out, requests_count, last_reset, updated_at)
+                VALUES (?, 0, 0, ?, ?)
+                ON CONFLICT(host) DO UPDATE SET
+                    bytes_out = 0,
+                    requests_count = 0,
+                    last_reset = excluded.last_reset,
+                    updated_at = excluded.updated_at;
+            """, (host, now_str, now_str))
+        else:
+            cursor.execute("""
+                UPDATE host_traffic_stats
+                SET bytes_out = 0, requests_count = 0, last_reset = ?, updated_at = ?;
+            """, (now_str, now_str))
+            cursor.execute("""
+                INSERT OR IGNORE INTO host_traffic_stats (host, bytes_out, requests_count, last_reset, updated_at)
+                SELECT domain, 0, 0, ?, ? FROM hosts;
+            """, (now_str, now_str))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_all_host_traffic_stats() -> List[Dict[str, Any]]:
+    """
+    Retrieve outbound traffic statistics for all registered hosts.
+    Guarantees outer join with hosts table so hosts with 0 bytes are included.
+    Automatically resets expired counters (>= 30 days).
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    now = datetime.now(timezone.utc)
+    now_str = now.strftime("%Y-%m-%d %H:%M:%S")
+
+    try:
+        cursor.execute("""
+            SELECT
+                h.domain as host,
+                COALESCE(s.bytes_out, 0) as bytes_out,
+                COALESCE(s.requests_count, 0) as requests_count,
+                s.last_reset,
+                s.updated_at
+            FROM hosts h
+            LEFT JOIN host_traffic_stats s ON h.domain = s.host
+            ORDER BY h.domain ASC;
+        """)
+        rows = [dict(r) for r in cursor.fetchall()]
+
+        cursor.execute("""
+            SELECT
+                s.host as host,
+                COALESCE(s.bytes_out, 0) as bytes_out,
+                COALESCE(s.requests_count, 0) as requests_count,
+                s.last_reset,
+                s.updated_at
+            FROM host_traffic_stats s
+            WHERE s.host NOT IN (SELECT domain FROM hosts)
+            ORDER BY s.host ASC;
+        """)
+        orphan_rows = [dict(r) for r in cursor.fetchall()]
+        all_entries = rows + orphan_rows
+
+        results = []
+        expired_hosts_to_reset = []
+
+        for item in all_entries:
+            h = item["host"]
+            b_out = int(item["bytes_out"])
+            req_count = int(item["requests_count"])
+            lr_str = item["last_reset"]
+            up_str = item["updated_at"] or now_str
+
+            if not lr_str:
+                lr_str = now_str
+                cursor.execute("""
+                    INSERT OR REPLACE INTO host_traffic_stats (host, bytes_out, requests_count, last_reset, updated_at)
+                    VALUES (?, ?, ?, ?, ?);
+                """, (h, b_out, req_count, lr_str, up_str))
+
+            try:
+                cleaned_ts = str(lr_str).replace("T", " ")[:19]
+                lr_dt = datetime.strptime(cleaned_ts, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+            except Exception:
+                lr_dt = now
+
+            elapsed_secs = max(0.0, (now - lr_dt).total_seconds())
+            if elapsed_secs >= 30 * 86400:
+                expired_hosts_to_reset.append(h)
+                b_out = 0
+                req_count = 0
+                lr_str = now_str
+                elapsed_secs = 0.0
+
+            remaining_secs = max(0.0, (30 * 86400) - elapsed_secs)
+            days_remaining = round(remaining_secs / 86400.0, 1)
+            days_since = round(elapsed_secs / 86400.0, 1)
+
+            results.append({
+                "host": h,
+                "bytes_out": b_out,
+                "formatted_bytes": format_bytes(b_out),
+                "requests_count": req_count,
+                "last_reset": lr_str,
+                "updated_at": up_str,
+                "days_since_reset": days_since,
+                "days_remaining": days_remaining,
+            })
+
+        if expired_hosts_to_reset:
+            for exp_host in expired_hosts_to_reset:
+                cursor.execute("""
+                    UPDATE host_traffic_stats
+                    SET bytes_out = 0, requests_count = 0, last_reset = ?, updated_at = ?
+                    WHERE host = ?;
+                """, (now_str, now_str, exp_host))
+            conn.commit()
+
+        return results
+    finally:
+        conn.close()
 
 
 def export_backup_data() -> Dict[str, Any]:
