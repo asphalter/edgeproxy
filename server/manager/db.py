@@ -1013,10 +1013,23 @@ def increment_host_traffic(host: str, bytes_out: int, requests: int = 1):
                     WHERE host = ?;
                 """, (bytes_out, requests, now_str, host))
         else:
+            # Determine initial reset timestamp: avoid pushing last_reset into the future
+            # of existing data for a newly registered host.
+            cursor.execute("SELECT MIN(bucket_ts) as min_ts FROM bandwidth_stats WHERE host = ?;", (host,))
+            min_r = cursor.fetchone()
+            first_seen_ts = min_r["min_ts"] if (min_r and min_r["min_ts"]) else now_str
+            cursor.execute("SELECT MIN(ts) as min_ts FROM access_logs WHERE host = ?;", (host,))
+            al_min_r = cursor.fetchone()
+            if al_min_r and al_min_r["min_ts"]:
+                al_ts = str(al_min_r["min_ts"]).replace("T", " ")[:19]
+                if al_ts < first_seen_ts:
+                    first_seen_ts = al_ts
+            initial_reset = min(now_str, first_seen_ts)
+
             cursor.execute("""
                 INSERT INTO host_traffic_stats (host, bytes_out, requests_count, last_reset, updated_at)
                 VALUES (?, ?, ?, ?, ?);
-            """, (host, bytes_out, requests, now_str, now_str))
+            """, (host, bytes_out, requests, initial_reset, now_str))
 
         conn.commit()
     finally:
@@ -1061,6 +1074,10 @@ def get_all_host_traffic_stats() -> List[Dict[str, Any]]:
     Retrieve outbound traffic statistics for all registered hosts.
     Guarantees outer join with hosts table so hosts with 0 bytes are included.
     Automatically resets expired counters (>= 30 days).
+    Ensures strict mathematical coherence:
+      - bytes_today considers last_reset (bucket_ts >= last_reset AND bucket_ts >= datetime('now', '-24 hours'))
+      - bytes_out is the superset of bytes_today: bytes_out >= bytes_today
+      - bytes_out is synchronized with historical data from bandwidth_stats since last_reset
     """
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -1068,23 +1085,6 @@ def get_all_host_traffic_stats() -> List[Dict[str, Any]]:
     now_str = now.strftime("%Y-%m-%d %H:%M:%S")
 
     try:
-        # Outbound bytes consumed in the last 24 hours per host
-        cursor.execute("""
-            SELECT host, COALESCE(SUM(bytes_out), 0) as daily_bytes
-            FROM bandwidth_stats
-            WHERE bucket_ts >= datetime('now', '-24 hours')
-            GROUP BY host;
-        """)
-        bw_daily = {row["host"]: row["daily_bytes"] for row in cursor.fetchall()}
-
-        cursor.execute("""
-            SELECT host, COALESCE(SUM(bytes_out), 0) as daily_bytes
-            FROM access_logs
-            WHERE (ts >= datetime('now', '-24 hours') OR created_at >= datetime('now', '-24 hours'))
-            GROUP BY host;
-        """)
-        al_daily = {row["host"]: row["daily_bytes"] for row in cursor.fetchall()}
-
         cursor.execute("""
             SELECT
                 h.domain as host,
@@ -1114,6 +1114,7 @@ def get_all_host_traffic_stats() -> List[Dict[str, Any]]:
 
         results = []
         expired_hosts_to_reset = []
+        stats_to_sync = []
 
         for item in all_entries:
             h = item["host"]
@@ -1123,7 +1124,16 @@ def get_all_host_traffic_stats() -> List[Dict[str, Any]]:
             up_str = item["updated_at"] or now_str
 
             if not lr_str:
-                lr_str = now_str
+                cursor.execute("SELECT MIN(bucket_ts) as min_ts FROM bandwidth_stats WHERE host = ?;", (h,))
+                min_r = cursor.fetchone()
+                first_seen_ts = min_r["min_ts"] if (min_r and min_r["min_ts"]) else now_str
+                cursor.execute("SELECT MIN(ts) as min_ts FROM access_logs WHERE host = ?;", (h,))
+                al_min_r = cursor.fetchone()
+                if al_min_r and al_min_r["min_ts"]:
+                    al_ts = str(al_min_r["min_ts"]).replace("T", " ")[:19]
+                    if al_ts < first_seen_ts:
+                        first_seen_ts = al_ts
+                lr_str = min(now_str, first_seen_ts)
                 cursor.execute("""
                     INSERT OR REPLACE INTO host_traffic_stats (host, bytes_out, requests_count, last_reset, updated_at)
                     VALUES (?, ?, ?, ?, ?);
@@ -1132,8 +1142,10 @@ def get_all_host_traffic_stats() -> List[Dict[str, Any]]:
             try:
                 cleaned_ts = str(lr_str).replace("T", " ")[:19]
                 lr_dt = datetime.strptime(cleaned_ts, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+                lr_str = lr_dt.strftime("%Y-%m-%d %H:%M:%S")
             except Exception:
                 lr_dt = now
+                lr_str = now_str
 
             elapsed_secs = max(0.0, (now - lr_dt).total_seconds())
             if elapsed_secs >= 30 * 86400:
@@ -1142,13 +1154,52 @@ def get_all_host_traffic_stats() -> List[Dict[str, Any]]:
                 req_count = 0
                 lr_str = now_str
                 elapsed_secs = 0.0
+                b_today = 0
+            else:
+                # Query daily outbound bytes taking into account last_reset:
+                # bucket_ts >= last_reset AND bucket_ts >= datetime('now', '-24 hours')
+                cursor.execute("""
+                    SELECT COALESCE(SUM(bytes_out), 0) as daily_bytes
+                    FROM bandwidth_stats
+                    WHERE host = ?
+                      AND bucket_ts >= ?
+                      AND bucket_ts >= datetime('now', '-24 hours');
+                """, (h, lr_str))
+                bw_row = cursor.fetchone()
+                bw_daily_host = int(bw_row["daily_bytes"]) if bw_row and bw_row["daily_bytes"] is not None else 0
+
+                cursor.execute("""
+                    SELECT COALESCE(SUM(bytes_out), 0) as daily_bytes
+                    FROM access_logs
+                    WHERE host = ?
+                      AND (ts >= ? OR created_at >= ?)
+                      AND (ts >= datetime('now', '-24 hours') OR created_at >= datetime('now', '-24 hours'));
+                """, (h, lr_str, lr_str))
+                al_row = cursor.fetchone()
+                al_daily_host = int(al_row["daily_bytes"]) if al_row and al_row["daily_bytes"] is not None else 0
+
+                b_today = max(bw_daily_host, al_daily_host)
+
+                # Total bytes from bandwidth_stats since last_reset
+                cursor.execute("""
+                    SELECT COALESCE(SUM(bytes_out), 0) as total_bytes
+                    FROM bandwidth_stats
+                    WHERE host = ?
+                      AND bucket_ts >= ?;
+                """, (h, lr_str))
+                tot_row = cursor.fetchone()
+                bw_since_reset = int(tot_row["total_bytes"]) if tot_row and tot_row["total_bytes"] is not None else 0
+
+                # Ensure bytes_out is mathematically coherent:
+                # bytes_out must be the superset of bytes_today and aligned with bandwidth_stats since last_reset
+                b_out = max(b_out, bw_since_reset, b_today)
+
+                if b_out > int(item["bytes_out"]):
+                    stats_to_sync.append((b_out, now_str, h))
 
             remaining_secs = max(0.0, (30 * 86400) - elapsed_secs)
             days_remaining = round(remaining_secs / 86400.0, 1)
             days_since = round(elapsed_secs / 86400.0, 1)
-
-            # Daily outbound bytes (last 24 hours)
-            b_today = max(int(bw_daily.get(h, 0)), int(al_daily.get(h, 0)))
 
             results.append({
                 "host": h,
@@ -1170,8 +1221,16 @@ def get_all_host_traffic_stats() -> List[Dict[str, Any]]:
                     SET bytes_out = 0, requests_count = 0, last_reset = ?, updated_at = ?
                     WHERE host = ?;
                 """, (now_str, now_str, exp_host))
-            conn.commit()
 
+        if stats_to_sync:
+            for sync_bytes, sync_up, sync_host in stats_to_sync:
+                cursor.execute("""
+                    UPDATE host_traffic_stats
+                    SET bytes_out = ?, updated_at = ?
+                    WHERE host = ?;
+                """, (sync_bytes, sync_up, sync_host))
+
+        conn.commit()
         return results
     finally:
         conn.close()

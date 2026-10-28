@@ -1070,6 +1070,102 @@ class TestEdgeProxyManager(unittest.TestCase):
         self.assertIn(test_host1, view_res.text)
         self.assertIn("192.168.1.52", view_res.text)
 
+    def test_mathematical_coherence_bytes_today_leq_bytes_out(self):
+        """
+        Verify mathematical coherence: bytes_today <= bytes_out is ALWAYS strictly respected
+        in all scenarios:
+        1. After manual reset (reset_host_traffic) even with heavy prior traffic in last 24h.
+        2. With new traffic incoming after reset (bytes_today includes only post-reset data).
+        3. Counter desynchronization / lagging counter (bytes_out elevated to superset of bytes_today).
+        4. Auto-reset expiration (>= 30 days old reset timestamp).
+        5. Universal invariant: for every host, bytes_today <= bytes_out.
+        """
+        math_host = "math-coherence.example.com"
+        conn = db.get_db_connection()
+
+        # Step 1: Pre-populate bandwidth_stats and access_logs with heavy traffic (3 hours ago)
+        conn.execute("""
+            INSERT INTO bandwidth_stats (host, bucket_ts, bytes_out, requests)
+            VALUES (?, datetime('now', '-3 hours'), 52428800, 100);
+        """, (math_host,))
+        conn.execute("""
+            INSERT INTO access_logs (host, remote_ip, method, uri, status, duration_ms, bytes_out, user_agent, ts, created_at)
+            VALUES (?, '10.0.0.1', 'GET', '/heavy', 200, 15.0, 52428800, 'TestUA', datetime('now', '-3 hours'), datetime('now', '-3 hours'));
+        """, (math_host,))
+        conn.commit()
+        conn.close()
+
+        # Reset host traffic explicitly (simulating user clicking reset or routine reset)
+        db.reset_host_traffic(math_host)
+
+        # SCENARIO 1: Immediately after reset, bytes_today MUST NOT include traffic before reset.
+        # bytes_today must be 0, bytes_out must be 0, and bytes_today <= bytes_out must hold.
+        traffic = db.get_all_host_traffic_stats()
+        stat = next((t for t in traffic if t["host"] == math_host), None)
+        self.assertIsNotNone(stat)
+        self.assertEqual(stat["bytes_today"], 0, "Daily outbound must be 0 after reset even with prior traffic")
+        self.assertEqual(stat["bytes_out"], 0, "Outbound 30d must be 0 after reset")
+        self.assertLessEqual(stat["bytes_today"], stat["bytes_out"])
+
+        # SCENARIO 2: New traffic comes in AFTER the reset (e.g. 1048576 bytes = 1 MB)
+        db.increment_host_traffic(math_host, 1048576, 5)
+        conn = db.get_db_connection()
+        conn.execute("""
+            INSERT INTO bandwidth_stats (host, bucket_ts, bytes_out, requests)
+            VALUES (?, datetime('now', '+1 minute'), 1048576, 5);
+        """, (math_host,))
+        conn.commit()
+        conn.close()
+
+        traffic = db.get_all_host_traffic_stats()
+        stat = next((t for t in traffic if t["host"] == math_host), None)
+        self.assertIsNotNone(stat)
+        self.assertLessEqual(stat["bytes_today"], stat["bytes_out"])
+        # Daily must not count the 52 MB from before reset
+        self.assertLess(stat["bytes_today"], 50000000)
+
+        # SCENARIO 3: Deliberate desynchronization where host_traffic_stats has smaller value
+        conn = db.get_db_connection()
+        conn.execute("""
+            UPDATE host_traffic_stats
+            SET bytes_out = 500
+            WHERE host = ?;
+        """, (math_host,))
+        conn.commit()
+        conn.close()
+
+        traffic = db.get_all_host_traffic_stats()
+        stat = next((t for t in traffic if t["host"] == math_host), None)
+        self.assertIsNotNone(stat)
+        # Mathematical invariant: bytes_out is forced to max(bytes_out, bytes_today)
+        self.assertGreaterEqual(stat["bytes_out"], stat["bytes_today"])
+        self.assertLessEqual(stat["bytes_today"], stat["bytes_out"])
+
+        # SCENARIO 4: Expiration (>= 30 days) triggers automatic counter reset
+        conn = db.get_db_connection()
+        conn.execute("""
+            UPDATE host_traffic_stats
+            SET last_reset = datetime('now', '-35 days'), bytes_out = 9999999
+            WHERE host = ?;
+        """, (math_host,))
+        conn.commit()
+        conn.close()
+
+        traffic = db.get_all_host_traffic_stats()
+        stat = next((t for t in traffic if t["host"] == math_host), None)
+        self.assertIsNotNone(stat)
+        self.assertEqual(stat["bytes_out"], 0, "Expired host must be auto-reset to 0")
+        self.assertEqual(stat["bytes_today"], 0, "Expired host daily bytes must be 0")
+        self.assertLessEqual(stat["bytes_today"], stat["bytes_out"])
+
+        # SCENARIO 5: Universal check across all hosts in the database
+        for t in traffic:
+            self.assertLessEqual(
+                t["bytes_today"],
+                t["bytes_out"],
+                f"Host {t['host']} violated invariant: bytes_today ({t['bytes_today']}) > bytes_out ({t['bytes_out']})"
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
