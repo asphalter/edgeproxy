@@ -52,6 +52,38 @@
     </div>
 
     <div class="stat-card">
+        <div class="stat-label">Tunnel Latency</div>
+        <div class="stat-val">
+            {% if client_status == 'online' and client_latency_ms > 0 %}
+                {% if client_latency_ms < 50 %}
+                <span style="color: #34d399; font-size: 1.25rem; display: flex; align-items: center; gap: 0.4rem;">
+                    {{ client_latency_ms }} <span style="font-size: 0.85rem; font-weight: normal; color: var(--text-dim);">ms</span>
+                    <span class="badge badge-success" style="font-size: 0.65rem; margin-left: 0.25rem;">Optimal</span>
+                </span>
+                {% elif client_latency_ms < 150 %}
+                <span style="color: #fbbf24; font-size: 1.25rem; display: flex; align-items: center; gap: 0.4rem;">
+                    {{ client_latency_ms }} <span style="font-size: 0.85rem; font-weight: normal; color: var(--text-dim);">ms</span>
+                    <span class="badge badge-warning" style="font-size: 0.65rem; margin-left: 0.25rem;">Moderate</span>
+                </span>
+                {% else %}
+                <span style="color: #f87171; font-size: 1.25rem; display: flex; align-items: center; gap: 0.4rem;">
+                    {{ client_latency_ms }} <span style="font-size: 0.85rem; font-weight: normal; color: var(--text-dim);">ms</span>
+                    <span class="badge badge-danger" style="font-size: 0.65rem; margin-left: 0.25rem;">High</span>
+                </span>
+                {% endif %}
+            {% elif client_status == 'online' %}
+                <span style="color: #34d399; font-size: 1.25rem; display: flex; align-items: center; gap: 0.4rem;">
+                    < 1 <span style="font-size: 0.85rem; font-weight: normal; color: var(--text-dim);">ms</span>
+                    <span class="badge badge-success" style="font-size: 0.65rem; margin-left: 0.25rem;">Optimal</span>
+                </span>
+            {% else %}
+                <span style="color: var(--text-dim); font-size: 1.1rem;">Offline</span>
+            {% endif %}
+        </div>
+        <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.35rem; font-family: var(--font-mono);">Client: {{ client_name }}</div>
+    </div>
+
+    <div class="stat-card">
         <div class="stat-label">Root Domain</div>
         <div class="stat-val" style="font-size: 1.1rem; color: #f8fafc; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
             {{ settings.get('root_domain', 'N/A') }}

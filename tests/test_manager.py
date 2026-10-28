@@ -120,9 +120,10 @@ class TestEdgeProxyManager(unittest.TestCase):
 
         # Asserzioni su Caddyfile
         self.assertIn("{$DOMAIN:edge.mpv.cx} {", caddy_content)
-        self.assertIn('respond "EdgeProxy Gateway" 200', caddy_content)
+        self.assertIn('respond "Unauthorized" 401', caddy_content)
         self.assertNotIn("reverse_proxy 127.0.0.1:8000", caddy_content)
-        self.assertNotIn(":80 {", caddy_content)
+        self.assertIn(":80 {", caddy_content)
+        self.assertIn(":443 {", caddy_content)
         self.assertNotIn("authelia", caddy_content)
         self.assertIn("demo.mycompany.org {", caddy_content)
         self.assertIn("Strict-Transport-Security", caddy_content)
@@ -642,8 +643,13 @@ class TestEdgeProxyManager(unittest.TestCase):
         # 1. Lista vuota
         toml_empty = config_engine.generate_rathole_client_toml([], settings)
         self.assertIn("[client.services.default]", toml_empty)
-        self.assertIn('token = "0000000000000000000000000000000000000000"', toml_empty)
+        self.assertIn(f'token = "{config_engine.DEFAULT_PLACEHOLDER_TOKEN}"', toml_empty)
         self.assertIn('local_addr = "127.0.0.1:65535"', toml_empty)
+
+        # Verifica che anche la configurazione server placeholder usi lo stesso token
+        server_toml_empty = config_engine.generate_rathole_server_toml([], settings)
+        self.assertIn("[server.services.default]", server_toml_empty)
+        self.assertIn(f'token = "{config_engine.DEFAULT_PLACEHOLDER_TOKEN}"', server_toml_empty)
 
         # 2. Host disabilitato o disconnected
         hosts = [
@@ -690,6 +696,142 @@ class TestEdgeProxyManager(unittest.TestCase):
         caddy_oauth = config_engine.generate_caddyfile(hosts, settings_oauth)
         manager_section_oauth = caddy_oauth.split("manager.{$DOMAIN:edge.mpv.cx} {")[1].split("auth.{$DOMAIN:edge.mpv.cx} {")[0]
         self.assertIn("import google_auth", manager_section_oauth)
+
+    def test_19_security_hardening_perimeter(self):
+        """Verifica hardening perimetrale: anti-fingerprinting (-Server), blocco dotfiles, anti-spoofing auth e DoS limits."""
+        hosts = [
+            {
+                "id": 1,
+                "domain": "secure.mycompany.org",
+                "upstream": "10.88.0.50:8080",
+                "rathole_port": 8001,
+                "policy": "google_oauth",
+                "security_headers": 1,
+                "enabled": 1
+            },
+            {
+                "id": 2,
+                "domain": "api-token.mycompany.org",
+                "upstream": "10.88.0.51:8080",
+                "rathole_port": 8002,
+                "policy": "service_token",
+                "service_token": "secret-token-xyz",
+                "security_headers": 1,
+                "enabled": 1
+            },
+            {
+                "id": 3,
+                "domain": "public.mycompany.org",
+                "upstream": "10.88.0.52:8080",
+                "rathole_port": 8003,
+                "policy": "public",
+                "security_headers": 1,
+                "enabled": 1
+            }
+        ]
+        settings = {
+            "acme_email": "matteo.piva@gmail.com",
+            "google_oauth_enabled": "1",
+            "google_client_id": "client-id",
+            "google_client_secret": "client-secret"
+        }
+        caddyfile = config_engine.generate_caddyfile(hosts, settings)
+
+        # 1. Anti-Fingerprinting e Stealth Hardening (Server: EdgeProxy ovunque)
+        self.assertIn('Server "EdgeProxy"', caddyfile)
+        self.assertNotIn("-Server", caddyfile)
+        self.assertIn(':80 {', caddyfile)
+        self.assertIn(':443 {', caddyfile)
+        self.assertIn('respond "Unauthorized" 401', caddyfile)
+
+        # 2. Blocco Dotfiles e File Nascosti (@hidden_files path */.* con status 404 e close)
+        self.assertIn("@hidden_files path */.*", caddyfile)
+        self.assertIn('respond "404 Not Found" 404 {', caddyfile)
+        self.assertIn("close", caddyfile)
+
+        # 3. Protezione DoS su Payload e Buffer
+        self.assertIn("request_body {", caddyfile)
+        self.assertIn("max_size 100MB", caddyfile)
+
+        # 4. Security Headers Avanzati (HSTS, nosniff, SAMEORIGIN, Referrer-Policy, Permissions-Policy)
+        self.assertIn("Strict-Transport-Security", caddyfile)
+        self.assertIn("X-Content-Type-Options \"nosniff\"", caddyfile)
+        self.assertIn("X-Frame-Options \"SAMEORIGIN\"", caddyfile)
+        self.assertIn("Referrer-Policy \"strict-origin-when-cross-origin\"", caddyfile)
+        self.assertIn("Permissions-Policy \"accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()\"", caddyfile)
+
+        # 5. Anti-Spoofing degli Header di Autenticazione:
+        # Nello snippet google_auth
+        google_auth_snippet = caddyfile.split("(google_auth) {")[1].split("manager.{$DOMAIN:edge.mpv.cx} {")[0]
+        self.assertIn("header_up -X-Auth-Request-User", google_auth_snippet)
+        self.assertIn("header_up -X-Auth-Request-Email", google_auth_snippet)
+
+        # Nel reverse_proxy di host pubblici e service_token
+        public_section = caddyfile.split("public.mycompany.org {")[1]
+        self.assertIn("header_up -X-Auth-Request-User", public_section)
+        self.assertIn("header_up -X-Auth-Request-Email", public_section)
+
+        token_section = caddyfile.split("api-token.mycompany.org {")[1].split("public.mycompany.org {")[0]
+        self.assertIn("header_up -X-Auth-Request-User", token_section)
+        self.assertIn("header_up -X-Auth-Request-Email", token_section)
+
+
+    def test_20_client_ping_and_latency_telemetry(self):
+        """Verifica endpoint ping, misurazione latenza RTT client-server e svecchiamento dati."""
+        # 1. Test endpoint GET /api/v1/client/ping
+        ping_res = self.client.get("/api/v1/client/ping")
+        self.assertEqual(ping_res.status_code, 200)
+        self.assertEqual(ping_res.text, "pong")
+
+        # 2. Test invio report con latency_ms
+        tokens = db.get_sync_tokens()
+        self.assertTrue(len(tokens) > 0)
+        token = tokens[0]["token"]
+
+        report_payload = {
+            "client_name": "test-telemetry-node",
+            "uptime_seconds": 120,
+            "version": "rathole 0.5.0",
+            "hostname": "worker-node-test",
+            "latency_ms": 42.5,
+            "logs": [{"level": "info", "message": "Link healthy"}]
+        }
+        report_res = self.client.post(
+            "/api/v1/client/report",
+            headers={"Authorization": f"Bearer {token}"},
+            json=report_payload
+        )
+        self.assertEqual(report_res.status_code, 200)
+        self.assertEqual(report_res.json().get("status"), "ok")
+
+        # Verifica persistenza stato client e latenza
+        active_clients = db.get_active_clients()
+        matching = [c for c in active_clients if c["client_name"] == "test-telemetry-node"]
+        self.assertTrue(len(matching) > 0)
+        self.assertEqual(matching[0]["latency_ms"], 42.5)
+
+        # 3. Test endpoint GET /api/v1/stats/latency
+        stats_res = self.client.get("/api/v1/stats/latency?hours=24")
+        self.assertEqual(stats_res.status_code, 200)
+        stats_data = stats_res.json()
+        self.assertEqual(stats_data.get("status"), "ok")
+        self.assertIn(42.5, stats_data.get("values", []))
+
+        # 4. Test Data Aging (svecchiamento automatico dei record di latenza)
+        # Inserisce un record vecchio (35 giorni fa)
+        conn = db.get_db_connection()
+        conn.execute("INSERT INTO client_latency_stats (client_name, latency_ms, recorded_at) VALUES ('old-node', 99.9, datetime('now', '-35 days'));")
+        conn.commit()
+        conn.close()
+
+        deleted = db.purge_old_access_logs(days=30)
+        self.assertGreaterEqual(deleted, 1)
+
+        # Verifica che il record di oltre 30 giorni sia stato eliminato
+        conn = db.get_db_connection()
+        row = conn.execute("SELECT COUNT(*) FROM client_latency_stats WHERE client_name = 'old-node';").fetchone()
+        conn.close()
+        self.assertEqual(row[0], 0)
 
 
 if __name__ == "__main__":

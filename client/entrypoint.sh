@@ -104,6 +104,13 @@ send_heartbeat_and_logs() {
     rathole_ver=$(rathole --version 2>&1 | head -n1 || echo "unknown")
   fi
 
+  # Measure round-trip connection latency (ms) to server ping endpoint
+  local LATENCY_MS
+  LATENCY_MS=$(curl -s -k -o /dev/null -w "%{time_connect}" --max-time 3 "${SERVER_URL}/api/v1/client/ping" 2>/dev/null | awk '{printf "%.1f", $1 * 1000}' || echo "0.0")
+  if [[ -z "$LATENCY_MS" || ! "$LATENCY_MS" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+    LATENCY_MS="0.0"
+  fi
+
   local json_payload=""
   if command -v jq >/dev/null 2>&1; then
     local logs_json="[]"
@@ -123,25 +130,27 @@ send_heartbeat_and_logs() {
       --argjson uptime "$uptime_sec" \
       --arg ver "$rathole_ver" \
       --arg host "$hname" \
+      --argjson latency "$LATENCY_MS" \
       --argjson logs "$logs_json" \
       '{
         client_name: $cname,
         uptime_seconds: $uptime,
         version: $ver,
         hostname: $host,
+        latency_ms: $latency,
         logs: $logs
       }' 2>/dev/null || true)
   fi
 
   if [[ -z "$json_payload" ]]; then
-    json_payload="{\"client_name\": \"$CLIENT_NAME\", \"uptime_seconds\": $uptime_sec, \"version\": \"$rathole_ver\", \"hostname\": \"$hname\", \"logs\": []}"
+    json_payload="{\"client_name\": \"$CLIENT_NAME\", \"uptime_seconds\": $uptime_sec, \"version\": \"$rathole_ver\", \"hostname\": \"$hname\", \"latency_ms\": $LATENCY_MS, \"logs\": []}"
   fi
 
   curl -sS -k -X POST \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer ${SYNC_TOKEN}" \
     -d "$json_payload" \
-    "${SERVER_URL}/api/v1/client/telemetry" >/dev/null 2>&1 || true
+    "${SERVER_URL}/api/v1/client/report" >/dev/null 2>&1 || true
 }
 
 start_rathole() {

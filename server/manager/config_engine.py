@@ -11,6 +11,8 @@ from db import get_all_hosts, get_settings
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 
+DEFAULT_PLACEHOLDER_TOKEN = "0000000000000000000000000000000000000000"
+
 def clean_service_name(domain: str) -> str:
     """Generate an identifier for Rathole service (e.g. 'service1' from 'service1.example.com')."""
     part = domain.split(".")[0] if "." in domain else domain
@@ -154,10 +156,45 @@ def generate_caddyfile(hosts: List[Dict[str, Any]], settings: Dict[str, str]) ->
         "\t}",
         "}",
         "",
+        "# Default fallback for direct IP and unmatched HTTP requests",
+        ":80 {",
+        "\theader {",
+        '\t\tServer "EdgeProxy"',
+        "\t}",
+        '\trespond "Unauthorized" 401 {',
+        "\t\tclose",
+        "\t}",
+        "}",
+        "",
+        "# Default fallback for direct IP and unmatched HTTPS requests",
+        ":443 {",
+        "\ttls internal",
+        "\theader {",
+        '\t\tServer "EdgeProxy"',
+        "\t}",
+        '\trespond "Unauthorized" 401 {',
+        "\t\tclose",
+        "\t}",
+        "}",
+        "",
         "# Apex / base domain: default public gateway",
         "{$DOMAIN:edge.mpv.cx} {",
         "\timport access_log",
-        '\trespond "EdgeProxy Gateway" 200',
+        "\theader {",
+        '\t\tServer "EdgeProxy"',
+        "\t}",
+        "\trequest_body {",
+        "\t\tmax_size 100MB",
+        "\t}",
+        "\t@hidden_files path */.*",
+        "\thandle @hidden_files {",
+        "\t\trespond \"404 Not Found\" 404 {",
+        "\t\t\tclose",
+        "\t\t}",
+        "\t}",
+        '\trespond "Unauthorized" 401 {',
+        "\t\tclose",
+        "\t}",
         "}",
         "",
         "# Reusable snippet for forward_auth with Google OAuth2 (oauth2-proxy)",
@@ -165,6 +202,8 @@ def generate_caddyfile(hosts: List[Dict[str, Any]], settings: Dict[str, str]) ->
         "\tforward_auth {$OAUTH2_PROXY_ADDR:127.0.0.1:4180} {",
         "\t\turi /oauth2/auth",
         "\t\tcopy_headers X-Auth-Request-User X-Auth-Request-Email",
+        "\t\theader_up -X-Auth-Request-User",
+        "\t\theader_up -X-Auth-Request-Email",
         "\t\t@unauth status 401",
         "\t\thandle_response @unauth {",
         "\t\t\tredir https://auth.{$DOMAIN:edge.mpv.cx}/oauth2/start?rd={scheme}://{host}{uri}",
@@ -179,10 +218,21 @@ def generate_caddyfile(hosts: List[Dict[str, Any]], settings: Dict[str, str]) ->
         "manager.{$DOMAIN:edge.mpv.cx} {",
         "\timport access_log",
         "\theader {",
+        '\t\tServer "EdgeProxy"',
         '\t\tStrict-Transport-Security "max-age=31536000; includeSubDomains; preload"',
         '\t\tX-Content-Type-Options "nosniff"',
         '\t\tX-Frame-Options "SAMEORIGIN"',
         '\t\tReferrer-Policy "strict-origin-when-cross-origin"',
+        '\t\tPermissions-Policy "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"',
+        "\t}",
+        "\trequest_body {",
+        "\t\tmax_size 100MB",
+        "\t}",
+        "\t@hidden_files path */.*",
+        "\thandle @hidden_files {",
+        "\t\trespond \"404 Not Found\" 404 {",
+        "\t\t\tclose",
+        "\t\t}",
         "\t}",
     ]
     if is_google_oauth_configured(settings):
@@ -192,6 +242,8 @@ def generate_caddyfile(hosts: List[Dict[str, Any]], settings: Dict[str, str]) ->
         "\treverse_proxy {$MANAGER_ADDR:127.0.0.1:8000} {",
         "\t\theader_up Host {host}",
         "\t\theader_up X-Real-IP {remote_host}",
+        "\t\theader_up -X-Auth-Request-User",
+        "\t\theader_up -X-Auth-Request-Email",
         "\t}",
         "}",
         "",
@@ -199,21 +251,36 @@ def generate_caddyfile(hosts: List[Dict[str, Any]], settings: Dict[str, str]) ->
         "auth.{$DOMAIN:edge.mpv.cx} {",
         "\timport access_log",
         "\theader {",
+        '\t\tServer "EdgeProxy"',
         '\t\tStrict-Transport-Security "max-age=31536000; includeSubDomains; preload"',
         '\t\tX-Content-Type-Options "nosniff"',
         '\t\tX-Frame-Options "SAMEORIGIN"',
         '\t\tReferrer-Policy "strict-origin-when-cross-origin"',
+        '\t\tPermissions-Policy "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"',
+        "\t}",
+        "\trequest_body {",
+        "\t\tmax_size 100MB",
+        "\t}",
+        "\t@hidden_files path */.*",
+        "\thandle @hidden_files {",
+        "\t\trespond \"404 Not Found\" 404 {",
+        "\t\t\tclose",
+        "\t\t}",
         "\t}",
         "\thandle /api/v1/client/* {",
         "\t\treverse_proxy {$MANAGER_ADDR:127.0.0.1:8000} {",
         "\t\t\theader_up Host {host}",
         "\t\t\theader_up X-Real-IP {remote_host}",
+        "\t\t\theader_up -X-Auth-Request-User",
+        "\t\t\theader_up -X-Auth-Request-Email",
         "\t\t}",
         "\t}",
         "\thandle {",
         "\t\treverse_proxy {$OAUTH2_PROXY_ADDR:127.0.0.1:4180} {",
         "\t\t\theader_up Host {host}",
         "\t\t\theader_up X-Real-IP {remote_host}",
+        "\t\t\theader_up -X-Auth-Request-User",
+        "\t\t\theader_up -X-Auth-Request-Email",
         "\t\t}",
         "\t}",
         "}",
@@ -233,13 +300,26 @@ def generate_caddyfile(hosts: List[Dict[str, Any]], settings: Dict[str, str]) ->
         lines.append(f"{domain} {{")
         lines.append("\timport access_log")
 
+        lines.append("\theader {")
+        lines.append('\t\tServer "EdgeProxy"')
         if sec_headers:
-            lines.append("\theader {")
             lines.append('\t\tStrict-Transport-Security "max-age=31536000; includeSubDomains; preload"')
             lines.append('\t\tX-Content-Type-Options "nosniff"')
             lines.append('\t\tX-Frame-Options "SAMEORIGIN"')
             lines.append('\t\tReferrer-Policy "strict-origin-when-cross-origin"')
-            lines.append("\t}")
+            lines.append('\t\tPermissions-Policy "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"')
+        lines.append("\t}")
+
+        lines.append("\trequest_body {")
+        lines.append("\t\tmax_size 100MB")
+        lines.append("\t}")
+
+        lines.append("\t@hidden_files path */.*")
+        lines.append("\thandle @hidden_files {")
+        lines.append('\t\trespond "404 Not Found" 404 {')
+        lines.append("\t\t\tclose")
+        lines.append("\t\t}")
+        lines.append("\t}")
 
         if policy == "google_oauth":
             lines.append("\timport google_auth")
@@ -288,11 +368,17 @@ def generate_caddyfile(hosts: List[Dict[str, Any]], settings: Dict[str, str]) ->
             lines.append(f"\treverse_proxy 127.0.0.1:{rathole_port} {{")
             lines.append("\t\theader_up Host {host}")
             lines.append("\t\theader_up X-Real-IP {remote_host}")
+            if policy != "google_oauth":
+                lines.append("\t\theader_up -X-Auth-Request-User")
+                lines.append("\t\theader_up -X-Auth-Request-Email")
             lines.append("\t}")
         else:
             lines.append(f"\treverse_proxy 127.0.0.1:{rathole_port} {{")
             lines.append("\t\theader_up Host {host}")
             lines.append("\t\theader_up X-Real-IP {remote_host}")
+            if policy != "google_oauth":
+                lines.append("\t\theader_up -X-Auth-Request-User")
+                lines.append("\t\theader_up -X-Auth-Request-Email")
 
             # Informational comments for WebSocket read/write stream settings
             if ws_read_timeout is not None:
@@ -344,7 +430,7 @@ def generate_rathole_server_toml(hosts: List[Dict[str, Any]], settings: Dict[str
     active_hosts = [h for h in hosts if h.get("enabled", 1)]
     if not active_hosts:
         lines.append("[server.services.default]")
-        lines.append('token = "edgeproxy_init_token"')
+        lines.append(f'token = "{DEFAULT_PLACEHOLDER_TOKEN}"')
         lines.append('bind_addr = "127.0.0.1:8001"')
         lines.append("")
 
@@ -396,7 +482,7 @@ def generate_rathole_client_toml(hosts: List[Dict[str, Any]], settings: Dict[str
     if not active_hosts:
         lines.append("# Default placeholder service to satisfy Rathole client parser when no services are active")
         lines.append("[client.services.default]")
-        lines.append('token = "0000000000000000000000000000000000000000"')
+        lines.append(f'token = "{DEFAULT_PLACEHOLDER_TOKEN}"')
         lines.append('local_addr = "127.0.0.1:65535"')
         lines.append("")
     else:

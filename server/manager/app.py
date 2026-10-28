@@ -234,6 +234,7 @@ async def dashboard_view(request: Request):
     client_name = "None"
     client_uptime = 0
     client_version = "unknown"
+    client_latency_ms = 0.0
 
     if active_clients:
         latest = active_clients[0]
@@ -241,6 +242,7 @@ async def dashboard_view(request: Request):
         client_last_seen = latest["last_seen"]
         client_uptime = latest.get("uptime_seconds", 0)
         client_version = latest.get("version", "unknown")
+        client_latency_ms = float(latest.get("latency_ms", 0.0) or 0.0)
         try:
             ls_dt = datetime.fromisoformat(latest["last_seen"].replace("Z", "+00:00"))
             if (datetime.now(timezone.utc) - ls_dt).total_seconds() < 45:
@@ -266,6 +268,7 @@ async def dashboard_view(request: Request):
         "client_name": client_name,
         "client_uptime": client_uptime,
         "client_version": client_version,
+        "client_latency_ms": client_latency_ms,
         "sync_tokens": sync_tokens,
         "settings": settings,
         "msg": msg,
@@ -485,6 +488,12 @@ async def api_client_config(authorization: Optional[str] = Header(None)):
     return PlainTextResponse(toml_content, media_type="text/plain")
 
 
+@app.get("/api/v1/client/ping", response_class=PlainTextResponse)
+async def api_client_ping():
+    """Lightweight ping endpoint for client latency probes."""
+    return PlainTextResponse("pong")
+
+
 @app.post("/api/v1/client/telemetry")
 @app.post("/api/v1/client/report")
 async def api_client_telemetry(request: Request, authorization: Optional[str] = Header(None)):
@@ -507,13 +516,23 @@ async def api_client_telemetry(request: Request, authorization: Optional[str] = 
     hostname = data.get("hostname") or ""
     remote_ip = request.client.host if request.client else "unknown"
 
-    db.record_client_heartbeat(
+    raw_latency = data.get("latency_ms")
+    try:
+        latency_ms = round(float(raw_latency), 1) if raw_latency is not None else 0.0
+    except (ValueError, TypeError):
+        latency_ms = 0.0
+
+    db.upsert_client_status(
         client_name=client_name,
         remote_ip=remote_ip,
         uptime_seconds=uptime_sec,
         version=version,
-        hostname=hostname
+        hostname=hostname,
+        latency_ms=latency_ms
     )
+
+    if raw_latency is not None:
+        db.record_client_latency(client_name=client_name, latency_ms=latency_ms)
 
     logs = data.get("logs") or []
     if isinstance(logs, list) and len(logs) > 0:
@@ -711,6 +730,22 @@ async def api_stats_bandwidth_timeline(hours: int = 24, host: Optional[str] = No
 async def api_stats_access_alias(limit: int = 50, host: Optional[str] = None):
     """Alias for access logs endpoint."""
     return await api_stats_access_logs(limit=limit, host=host)
+
+
+@app.get("/api/v1/stats/latency")
+async def api_stats_latency(hours: int = 24, client: Optional[str] = None):
+    """Retrieve time-series latency telemetry for Chart.js rendering."""
+    safe_hours = min(max(1, hours), 720)
+    filter_client = client.strip() if client else None
+    data = db.get_client_latency_chart_data(client_name=filter_client, hours=safe_hours)
+    return {
+        "status": "ok",
+        "labels": data.get("labels", []),
+        "values": data.get("values", []),
+        "points": data.get("points", []),
+        "hours": safe_hours,
+        "client_name": filter_client
+    }
 
 
 @app.post("/api/v1/stats/trigger-ingest")

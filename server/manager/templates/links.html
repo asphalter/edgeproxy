@@ -30,6 +30,7 @@
             </div>
             <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">
                 Uptime Agent: <span style="color: #38bdf8;" id="client-uptime">{{ c.uptime_seconds | format_uptime }}</span>
+                &bull; Latency: <span style="color: #34d399; font-weight: 600;" id="client-latency">{{ c.latency_ms or 0.0 }} ms</span>
             </div>
         {% else %}
             <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.25rem;">
@@ -52,7 +53,7 @@
                 Version: <span style="color: #94a3b8;" id="client-version">{{ clients[0].version or 'N/A' }}</span>
             </div>
             <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">
-                Polling interval: <span style="color: #34d399;">15s</span>
+                Polling interval: <span style="color: #34d399;">15s</span> &bull; Latency: <span style="color: #38bdf8; font-weight: 600;" id="client-latency-2">{{ c.latency_ms or 0.0 }} ms</span>
             </div>
         {% else %}
             <div style="font-size: 1.1rem; color: var(--text-muted); margin-top: 0.25rem;">-</div>
@@ -217,6 +218,11 @@ async function refreshData() {
             if (uptimeEl) uptimeEl.textContent = formatUptime(c.uptime_seconds);
             if (lastSeenEl && c.last_seen) lastSeenEl.textContent = c.last_seen.substring(0, 19).replace('T', ' ');
             if (verEl) verEl.textContent = c.version || 'N/A';
+            const latencyEl = document.getElementById('client-latency');
+            const latencyEl2 = document.getElementById('client-latency-2');
+            const latVal = (c.latency_ms !== undefined && c.latency_ms !== null) ? c.latency_ms : '0.0';
+            if (latencyEl) latencyEl.textContent = `${latVal} ms`;
+            if (latencyEl2) latencyEl2.textContent = `${latVal} ms`;
         }
 
         if (data.hosts) {

@@ -82,9 +82,33 @@ def init_db():
         remote_ip TEXT,
         uptime_seconds INTEGER DEFAULT 0,
         version TEXT,
-        hostname TEXT
+        hostname TEXT,
+        latency_ms REAL DEFAULT 0.0
     );
     """)
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS client_status (
+        client_name TEXT PRIMARY KEY,
+        last_seen TEXT NOT NULL,
+        remote_ip TEXT,
+        uptime_seconds INTEGER DEFAULT 0,
+        version TEXT,
+        hostname TEXT,
+        latency_ms REAL DEFAULT 0.0
+    );
+    """)
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS client_latency_stats (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        client_name TEXT NOT NULL,
+        latency_ms REAL NOT NULL,
+        recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_client_latency_client ON client_latency_stats(client_name);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_client_latency_recorded ON client_latency_stats(recorded_at);")
 
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS client_logs (
@@ -160,6 +184,16 @@ def init_db():
         cursor.execute("ALTER TABLE hosts ADD COLUMN ws_dial_timeout INTEGER DEFAULT 10;")
     if "ws_response_header_timeout" not in existing_host_cols:
         cursor.execute("ALTER TABLE hosts ADD COLUMN ws_response_header_timeout INTEGER DEFAULT 30;")
+
+    # Migrations for client_status and client_heartbeats
+    for tbl in ("client_status", "client_heartbeats"):
+        try:
+            cursor.execute(f"PRAGMA table_info({tbl});")
+            tbl_cols = {col["name"] for col in cursor.fetchall()}
+            if tbl_cols and "latency_ms" not in tbl_cols:
+                cursor.execute(f"ALTER TABLE {tbl} ADD COLUMN latency_ms REAL DEFAULT 0.0;")
+        except Exception:
+            pass
 
     cursor.execute("PRAGMA table_info(access_logs);")
     existing_acc_cols = {col["name"] for col in cursor.fetchall()}
@@ -426,35 +460,125 @@ def update_host_link_status(host_id: int, link_state: str, remote_addr: str = ""
     conn.close()
 
 
-def record_client_heartbeat(client_name: str, remote_ip: str, uptime_seconds: int = 0, version: str = "", hostname: str = ""):
-    """Record heartbeat telemetry received from a remote client agent."""
+def upsert_client_status(client_name: str, remote_ip: str, uptime_seconds: int = 0, version: str = "", hostname: str = "", latency_ms: float = 0.0):
+    """Upsert client status and heartbeat telemetry with latency measurement."""
     conn = get_db_connection()
     cursor = conn.cursor()
     now_iso = datetime.now(timezone.utc).isoformat()
+    try:
+        lat = round(float(latency_ms), 1)
+    except (ValueError, TypeError):
+        lat = 0.0
+
     cursor.execute("""
-        INSERT INTO client_heartbeats (client_name, last_seen, remote_ip, uptime_seconds, version, hostname)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO client_status (client_name, last_seen, remote_ip, uptime_seconds, version, hostname, latency_ms)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(client_name) DO UPDATE SET
             last_seen = excluded.last_seen,
             remote_ip = excluded.remote_ip,
             uptime_seconds = excluded.uptime_seconds,
             version = excluded.version,
-            hostname = excluded.hostname;
-    """, (client_name, now_iso, remote_ip, uptime_seconds, version, hostname))
+            hostname = excluded.hostname,
+            latency_ms = excluded.latency_ms;
+    """, (client_name, now_iso, remote_ip, uptime_seconds, version, hostname, lat))
+
+    cursor.execute("""
+        INSERT INTO client_heartbeats (client_name, last_seen, remote_ip, uptime_seconds, version, hostname, latency_ms)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(client_name) DO UPDATE SET
+            last_seen = excluded.last_seen,
+            remote_ip = excluded.remote_ip,
+            uptime_seconds = excluded.uptime_seconds,
+            version = excluded.version,
+            hostname = excluded.hostname,
+            latency_ms = excluded.latency_ms;
+    """, (client_name, now_iso, remote_ip, uptime_seconds, version, hostname, lat))
     conn.commit()
     conn.close()
 
 
-def get_active_clients() -> List[Dict[str, Any]]:
-    """Return all recorded client heartbeats ordered by last seen timestamp."""
+def record_client_heartbeat(client_name: str, remote_ip: str, uptime_seconds: int = 0, version: str = "", hostname: str = "", latency_ms: float = 0.0):
+    """Record heartbeat telemetry received from a remote client agent (alias for upsert_client_status)."""
+    upsert_client_status(client_name, remote_ip, uptime_seconds, version, hostname, latency_ms)
+
+
+def record_client_latency(client_name: str, latency_ms: float):
+    """Record client latency observation into client_latency_stats for time-series charts."""
+    try:
+        lat = round(float(latency_ms), 1)
+    except (ValueError, TypeError):
+        lat = 0.0
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT client_name, last_seen, remote_ip, uptime_seconds, version, hostname
-        FROM client_heartbeats
+        INSERT INTO client_latency_stats (client_name, latency_ms, recorded_at)
+        VALUES (?, ?, datetime('now'));
+    """, (client_name, lat))
+    conn.commit()
+    conn.close()
+
+
+def get_client_latency_chart_data(client_name: Optional[str] = None, hours: int = 24) -> Dict[str, Any]:
+    """Retrieve time-series latency stats aggregated for Chart.js line charts."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    h = abs(int(hours)) if hours else 24
+    param = f"-{h}"
+    query = """
+        SELECT recorded_at, latency_ms, client_name
+        FROM client_latency_stats
+        WHERE recorded_at >= datetime('now', ? || ' hours')
+    """
+    params: List[Any] = [param]
+    if client_name:
+        query += " AND client_name = ?"
+        params.append(client_name)
+    query += " ORDER BY recorded_at ASC;"
+
+    cursor.execute(query, params)
+    rows = cursor.fetchall()
+    conn.close()
+
+    labels = []
+    values = []
+    points = []
+    for r in rows:
+        ts = r["recorded_at"]
+        val = round(float(r["latency_ms"]), 1)
+        labels.append(ts)
+        values.append(val)
+        points.append({
+            "timestamp": ts,
+            "latency_ms": val,
+            "client_name": r["client_name"]
+        })
+
+    return {
+        "labels": labels,
+        "values": values,
+        "points": points,
+        "hours": h,
+        "client_name": client_name
+    }
+
+
+def get_active_clients() -> List[Dict[str, Any]]:
+    """Return all recorded client statuses ordered by last seen timestamp."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT client_name, last_seen, remote_ip, uptime_seconds, version, hostname, latency_ms
+        FROM client_status
         ORDER BY last_seen DESC;
     """)
     rows = cursor.fetchall()
+    if not rows:
+        cursor.execute("""
+            SELECT client_name, last_seen, remote_ip, uptime_seconds, version, hostname, latency_ms
+            FROM client_heartbeats
+            ORDER BY last_seen DESC;
+        """)
+        rows = cursor.fetchall()
     conn.close()
     return [dict(row) for row in rows]
 
@@ -773,7 +897,9 @@ def purge_old_access_logs(days: Optional[int] = None) -> int:
         del_logs = cursor.rowcount if cursor.rowcount > 0 else 0
         cursor.execute("DELETE FROM bandwidth_stats WHERE bucket_ts < datetime('now', ? || ' days');", (param,))
         del_bw = cursor.rowcount if cursor.rowcount > 0 else 0
-        deleted_total = del_logs + del_bw
+        cursor.execute("DELETE FROM client_latency_stats WHERE recorded_at < datetime('now', ? || ' days');", (param,))
+        del_latency = cursor.rowcount if cursor.rowcount > 0 else 0
+        deleted_total = del_logs + del_bw + del_latency
         conn.commit()
     finally:
         conn.close()

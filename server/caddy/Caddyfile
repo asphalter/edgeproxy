@@ -27,10 +27,45 @@
 	}
 }
 
+# Default fallback for direct IP and unmatched HTTP requests
+:80 {
+	header {
+		Server "EdgeProxy"
+	}
+	respond "Unauthorized" 401 {
+		close
+	}
+}
+
+# Default fallback for direct IP and unmatched HTTPS requests
+:443 {
+	tls internal
+	header {
+		Server "EdgeProxy"
+	}
+	respond "Unauthorized" 401 {
+		close
+	}
+}
+
 # Apex / base domain: default public gateway
 {$DOMAIN:edge.mpv.cx} {
 	import access_log
-	respond "EdgeProxy Gateway" 200
+	header {
+		Server "EdgeProxy"
+	}
+	request_body {
+		max_size 100MB
+	}
+	@hidden_files path */.*
+	handle @hidden_files {
+		respond "404 Not Found" 404 {
+			close
+		}
+	}
+	respond "Unauthorized" 401 {
+		close
+	}
 }
 
 # Reusable snippet for forward_auth with Google OAuth2 (oauth2-proxy)
@@ -38,6 +73,8 @@
 	forward_auth {$OAUTH2_PROXY_ADDR:127.0.0.1:4180} {
 		uri /oauth2/auth
 		copy_headers X-Auth-Request-User X-Auth-Request-Email
+		header_up -X-Auth-Request-User
+		header_up -X-Auth-Request-Email
 		@unauth status 401
 		handle_response @unauth {
 			redir https://auth.{$DOMAIN:edge.mpv.cx}/oauth2/start?rd={scheme}://{host}{uri}
@@ -52,14 +89,27 @@
 manager.{$DOMAIN:edge.mpv.cx} {
 	import access_log
 	header {
+		Server "EdgeProxy"
 		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
 		X-Content-Type-Options "nosniff"
 		X-Frame-Options "SAMEORIGIN"
 		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+	}
+	request_body {
+		max_size 100MB
+	}
+	@hidden_files path */.*
+	handle @hidden_files {
+		respond "404 Not Found" 404 {
+			close
+		}
 	}
 	reverse_proxy {$MANAGER_ADDR:127.0.0.1:8000} {
 		header_up Host {host}
 		header_up X-Real-IP {remote_host}
+		header_up -X-Auth-Request-User
+		header_up -X-Auth-Request-Email
 	}
 }
 
@@ -67,21 +117,36 @@ manager.{$DOMAIN:edge.mpv.cx} {
 auth.{$DOMAIN:edge.mpv.cx} {
 	import access_log
 	header {
+		Server "EdgeProxy"
 		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
 		X-Content-Type-Options "nosniff"
 		X-Frame-Options "SAMEORIGIN"
 		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+	}
+	request_body {
+		max_size 100MB
+	}
+	@hidden_files path */.*
+	handle @hidden_files {
+		respond "404 Not Found" 404 {
+			close
+		}
 	}
 	handle /api/v1/client/* {
 		reverse_proxy {$MANAGER_ADDR:127.0.0.1:8000} {
 			header_up Host {host}
 			header_up X-Real-IP {remote_host}
+			header_up -X-Auth-Request-User
+			header_up -X-Auth-Request-Email
 		}
 	}
 	handle {
 		reverse_proxy {$OAUTH2_PROXY_ADDR:127.0.0.1:4180} {
 			header_up Host {host}
 			header_up X-Real-IP {remote_host}
+			header_up -X-Auth-Request-User
+			header_up -X-Auth-Request-Email
 		}
 	}
 }

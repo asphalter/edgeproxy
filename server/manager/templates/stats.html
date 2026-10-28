@@ -90,6 +90,23 @@
     </div>
 </div>
 
+<!-- Tunnel Latency Timeline Chart Card -->
+<div class="card" style="margin-bottom: 1.5rem;">
+    <div class="card-title">
+        <span>Tunnel Round-Trip Latency (ms)</span>
+        <span id="latencyLoadingIndicator" style="display: none; font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-mono);">
+            Loading latency...
+        </span>
+    </div>
+
+    <div style="position: relative; height: 240px; width: 100%;">
+        <canvas id="latencyChart"></canvas>
+        <div id="latencyEmptyMessage" style="display: none; position: absolute; inset: 0; align-items: center; justify-content: center; color: var(--text-muted); font-family: var(--font-mono); font-size: 0.85rem;">
+            No latency telemetry recorded yet. Ensure edgeproxy-client is connected.
+        </div>
+    </div>
+</div>
+
 <!-- Recent Access Logs Table -->
 <div class="card">
     <div class="card-title">
@@ -125,6 +142,7 @@
 
 <script>
     let bandwidthChartInstance = null;
+    let latencyChartInstance = null;
 
     const CHART_COLORS = [
         { border: '#38bdf8', bg: 'rgba(56, 189, 248, 0.15)' },
@@ -366,9 +384,124 @@
         document.getElementById('statPeriodLabel').textContent = labels[hours] || `${hours} Hours`;
     }
 
+    async function loadLatencyData() {
+        const hours = document.getElementById('timeRangeSelect').value;
+        const loader = document.getElementById('latencyLoadingIndicator');
+        const emptyMsg = document.getElementById('latencyEmptyMessage');
+        const canvas = document.getElementById('latencyChart');
+
+        if (loader) loader.style.display = 'inline';
+
+        try {
+            const url = `/api/v1/stats/latency?hours=${encodeURIComponent(hours)}`;
+            const res = await fetch(url);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+
+            const labels = (data.labels || []).map(formatTimeLabel);
+            const values = data.values || [];
+
+            if (emptyMsg) {
+                emptyMsg.style.display = labels.length === 0 ? 'flex' : 'none';
+            }
+
+            if (latencyChartInstance) {
+                latencyChartInstance.data.labels = labels;
+                latencyChartInstance.data.datasets = [{
+                    label: 'RTT Latency (ms)',
+                    data: values,
+                    borderColor: '#38bdf8',
+                    backgroundColor: 'rgba(56, 189, 248, 0.12)',
+                    fill: true,
+                    tension: 0.3,
+                    borderWidth: 2,
+                    pointRadius: values.length > 50 ? 1 : 3,
+                    pointHoverRadius: 5
+                }];
+                latencyChartInstance.update();
+            } else {
+                const ctx = canvas.getContext('2d');
+                latencyChartInstance = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'RTT Latency (ms)',
+                            data: values,
+                            borderColor: '#38bdf8',
+                            backgroundColor: 'rgba(56, 189, 248, 0.12)',
+                            fill: true,
+                            tension: 0.3,
+                            borderWidth: 2,
+                            pointRadius: values.length > 50 ? 1 : 3,
+                            pointHoverRadius: 5
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: {
+                            intersect: false,
+                            mode: 'index'
+                        },
+                        plugins: {
+                            legend: {
+                                position: 'top',
+                                labels: {
+                                    color: '#94a3b8',
+                                    font: { family: 'ui-monospace, monospace', size: 11 },
+                                    boxWidth: 12
+                                }
+                            },
+                            tooltip: {
+                                backgroundColor: '#181c2b',
+                                titleColor: '#e2e8f0',
+                                bodyColor: '#94a3b8',
+                                borderColor: '#2d3752',
+                                borderWidth: 1,
+                                callbacks: {
+                                    label: function(context) {
+                                        return `Latency: ${context.parsed.y} ms`;
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                grid: { color: 'rgba(51, 65, 85, 0.25)' },
+                                ticks: {
+                                    color: '#64748b',
+                                    font: { family: 'ui-monospace, monospace', size: 10 },
+                                    maxRotation: 45
+                                }
+                            },
+                            y: {
+                                beginAtZero: true,
+                                grid: { color: 'rgba(51, 65, 85, 0.25)' },
+                                ticks: {
+                                    color: '#64748b',
+                                    font: { family: 'ui-monospace, monospace', size: 10 },
+                                    callback: function(value) {
+                                        return value + ' ms';
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        } catch (err) {
+            console.error('Failed to load latency data:', err);
+            if (emptyMsg) emptyMsg.style.display = 'flex';
+        } finally {
+            if (loader) loader.style.display = 'none';
+        }
+    }
+
     function loadAllStats() {
         updatePeriodLabel();
         loadBandwidthData();
+        loadLatencyData();
         loadAccessLogs();
     }
 
