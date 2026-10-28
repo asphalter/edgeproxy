@@ -104,9 +104,9 @@ send_heartbeat_and_logs() {
     rathole_ver=$(rathole --version 2>&1 | head -n1 || echo "unknown")
   fi
 
-  # Measure round-trip connection latency (ms) to server ping endpoint
+  # Pure TCP handshake RTT excluding DNS resolution time: (%{time_connect} - %{time_namelookup}) * 1000
   local LATENCY_MS
-  LATENCY_MS=$(curl -s -k -o /dev/null -w "%{time_connect}" --max-time 3 "${SERVER_URL}/api/v1/client/ping" 2>/dev/null | awk '{printf "%.1f", $1 * 1000}' || echo "0.0")
+  LATENCY_MS=$(curl -s -k -o /dev/null -w "%{time_connect} %{time_namelookup}" --max-time 3 "${SERVER_URL}/api/v1/client/ping" 2>/dev/null | awk '{if ($1 >= $2 && $2 > 0) printf "%.1f", ($1 - $2) * 1000; else if ($1 > 0) printf "%.1f", $1 * 1000; else print "0.0"}' || echo "0.0")
   if [[ -z "$LATENCY_MS" || ! "$LATENCY_MS" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
     LATENCY_MS="0.0"
   fi
